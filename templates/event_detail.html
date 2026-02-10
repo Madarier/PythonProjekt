@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event Details - Smart Doorbell</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        /* Header */
+        .detail-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .back-button {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 50px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            transition: background 0.3s;
+        }
+
+        .back-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .header-title {
+            text-align: center;
+            flex-grow: 1;
+        }
+
+        .header-title h1 {
+            font-size: 2.2rem;
+            margin-bottom: 5px;
+        }
+
+        .header-title p {
+            opacity: 0.9;
+        }
+
+        /* Content Layout */
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            padding: 40px;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Info Card */
+        .info-card {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        .info-section {
+            margin-bottom: 25px;
+        }
+
+        .info-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .section-title {
+            font-size: 1.2rem;
+            color: #667eea;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+        }
+
+        .info-grid {
+            display: grid;
+            gap: 15px;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .info-label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .info-value {
+            color: #333;
+            font-weight: 600;
+        }
+
+        /* Event Type Badge */
+        .event-badge {
+            display: inline-block;
+            padding: 8px 20px;
+            border-radius: 50px;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+
+        .event-badge.ring {
+            background: #ffebee;
+            color: #ff6b6b;
+        }
+
+        .event-badge.motion {
+            background: #e0f7fa;
+            color: #4ecdc4;
+        }
+
+        /* Video Container */
+        .video-container {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .video-placeholder {
+            flex-grow: 1;
+            background: #e9ecef;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            min-height: 300px;
+        }
+
+        .video-placeholder i {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .video-player {
+            width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .video-actions {
+            margin-top: 20px;
+            display: flex;
+            gap: 15px;
+        }
+
+        .action-button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            background: #667eea;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: background 0.3s;
+            text-decoration: none;
+        }
+
+        .action-button:hover {
+            background: #5a67d8;
+        }
+
+        .action-button.download {
+            background: #4ecdc4;
+        }
+
+        .action-button.download:hover {
+            background: #45b7af;
+        }
+
+        /* Timeline */
+        .timeline {
+            grid-column: 1 / -1;
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 30px;
+            margin-top: 20px;
+        }
+
+        .timeline-item {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding: 15px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .timeline-item:last-child {
+            border-bottom: none;
+        }
+
+        .timeline-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #667eea;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .timeline-content {
+            flex-grow: 1;
+        }
+
+        .timeline-time {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .timeline-desc {
+            color: #666;
+            margin-top: 5px;
+        }
+
+        /* Footer */
+        .detail-footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            border-top: 1px solid #eee;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="detail-header">
+            <a href="{{ url_for('dashboard') }}" class="back-button">
+                <i class="fas fa-arrow-left"></i>
+                Zurück zum Dashboard
+            </a>
+            
+            <div class="header-title">
+                <h1>Event Details</h1>
+                <p>Detaillierte Informationen zum Event</p>
+            </div>
+            
+            <div style="width: 120px;"></div> <!-- Platzhalter für symmetrie -->
+        </div>
+
+        <!-- Main Content -->
+        <div class="content">
+            <!-- Event Information -->
+            <div class="info-card">
+                <div class="info-section">
+                    <h3 class="section-title">
+                        <i class="fas fa-info-circle"></i>
+                        Event Information
+                    </h3>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span class="info-label">Event ID:</span>
+                            <span class="info-value">#{{ event.id }}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Event Typ:</span>
+                            <span class="event-badge {{ event.event_type }}">
+                                {% if event.event_type == 'ring' %}
+                                    <i class="fas fa-bell"></i> RING
+                                {% else %}
+                                    <i class="fas fa-running"></i> MOTION
+                                {% endif %}
+                            </span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Datum:</span>
+                            <span class="info-value">{{ event.timestamp.split(' ')[0] }}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Uhrzeit:</span>
+                            <span class="info-value">{{ event.timestamp.split(' ')[1] }} Uhr</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Video vorhanden:</span>
+                            <span class="info-value">
+                                {% if event.video_file %}
+                                    <i class="fas fa-check" style="color: #4ecdc4;"></i> Ja
+                                {% else %}
+                                    <i class="fas fa-times" style="color: #ff6b6b;"></i> Nein
+                                {% endif %}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="info-section">
+                    <h3 class="section-title">
+                        <i class="fas fa-cogs"></i>
+                        System Information
+                    </h3>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span class="info-label">Aufgezeichnet mit:</span>
+                            <span class="info-value">Smart Doorbell v1.0</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Datenbank ID:</span>
+                            <span class="info-value">{{ event.id }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Video Container -->
+            <div class="video-container">
+                <h3 class="section-title">
+                    <i class="fas fa-video"></i>
+                    Video Aufnahme
+                </h3>
+                
+                {% if event.video_file %}
+                    {% set video_url = url_for('static', filename='videos/' + (event.video_file if event.video_file.endswith('.mp4') else event.video_file + '.mp4')) %}
+                    
+                    <video class="video-player" controls>
+                        <source src="{{ video_url }}" type="video/mp4">
+                        Ihr Browser unterstützt das Video-Tag nicht.
+                    </video>
+                    
+                    <div class="video-actions">
+                        <a href="{{ video_url }}" download class="action-button download">
+                            <i class="fas fa-download"></i>
+                            Video herunterladen
+                        </a>
+                        <button class="action-button" onclick="document.querySelector('video').requestFullscreen()">
+                            <i class="fas fa-expand"></i>
+                            Vollbild
+                        </button>
+                    </div>
+                {% else %}
+                    <div class="video-placeholder">
+                        <i class="fas fa-video-slash"></i>
+                        <h3>Kein Video verfügbar</h3>
+                        <p>Für dieses Event wurde kein Video aufgezeichnet.</p>
+                    </div>
+                {% endif %}
+            </div>
+
+            <!-- Event Timeline (Optional) -->
+            <div class="timeline">
+                <h3 class="section-title">
+                    <i class="fas fa-stream"></i>
+                    Event Timeline
+                </h3>
+                
+                <div class="timeline-item">
+                    <div class="timeline-icon">
+                        <i class="fas fa-bolt"></i>
+                    </div>
+                    <div class="timeline-content">
+                        <div class="timeline-time">Event erkannt</div>
+                        <div class="timeline-desc">
+                            {% if event.event_type == 'ring' %}
+                                Türklingel wurde betätigt
+                            {% else %}
+                                Bewegung wurde erkannt
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="info-value">{{ event.timestamp.split(' ')[1][:5] }}</div>
+                </div>
+                
+                <div class="timeline-item">
+                    <div class="timeline-icon">
+                        <i class="fas fa-database"></i>
+                    </div>
+                    <div class="timeline-content">
+                        <div class="timeline-time">In Datenbank gespeichert</div>
+                        <div class="timeline-desc">Event wurde erfolgreich aufgezeichnet</div>
+                    </div>
+                    <div class="info-value">{{ event.timestamp.split(' ')[1][:5] }}</div>
+                </div>
+                
+                {% if event.video_file %}
+                <div class="timeline-item">
+                    <div class="timeline-icon">
+                        <i class="fas fa-video"></i>
+                    </div>
+                    <div class="timeline-content">
+                        <div class="timeline-time">Video verarbeitet</div>
+                        <div class="timeline-desc">Videoaufnahme wurde gespeichert</div>
+                    </div>
+                    <div class="info-value">{{ event.timestamp.split(' ')[1][:5] }}</div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="detail-footer">
+            <p>Smart Doorbell System | Event aufgezeichnet am {{ event.timestamp }}</p>
+        </div>
+    </div>
+
+    <script>
+        // Video Controls
+        document.addEventListener('DOMContentLoaded', function() {
+            const video = document.querySelector('video');
+            if (video) {
+                // Autoplay nicht starten, aber vorladen
+                video.preload = 'metadata';
+                
+                // Tastatur-Shortcuts
+                document.addEventListener('keydown', function(e) {
+                    if (document.activeElement.tagName === 'VIDEO') {
+                        switch(e.key) {
+                            case ' ':
+                                e.preventDefault();
+                                video.paused ? video.play() : video.pause();
+                                break;
+                            case 'f':
+                                video.requestFullscreen();
+                                break;
+                            case 'm':
+                                video.muted = !video.muted;
+                                break;
+                        }
+                    }
+                });
+            }
+            
+            // Zeitformatierung für die Timeline
+            const times = document.querySelectorAll('.timeline-item .info-value');
+            times.forEach(time => {
+                const original = time.textContent;
+                time.textContent = original + ' Uhr';
+            });
+        });
+    </script>
+</body>
+</html>

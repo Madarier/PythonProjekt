@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Doorbell - Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .dashboard-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            position: relative;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-icon {
+            font-size: 2.5rem;
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+
+        .stat-number {
+            font-size: 2.2rem;
+            font-weight: bold;
+            color: #333;
+            display: block;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Events Section */
+        .events-section {
+            padding: 30px;
+        }
+
+        .section-title {
+            font-size: 1.8rem;
+            margin-bottom: 25px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-title i {
+            color: #667eea;
+        }
+
+        .events-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 20px;
+        }
+
+        .event-button {
+            display: block;
+            text-decoration: none;
+            background: white;
+            border: none;
+            border-radius: 15px;
+            padding: 25px 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .event-button:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .event-button.ring {
+            border-top: 5px solid #ff6b6b;
+        }
+
+        .event-button.motion {
+            border-top: 5px solid #4ecdc4;
+        }
+
+        .event-icon {
+            font-size: 2.5rem;
+            margin-bottom: 15px;
+        }
+
+        .event-button.ring .event-icon {
+            color: #ff6b6b;
+        }
+
+        .event-button.motion .event-icon {
+            color: #4ecdc4;
+        }
+
+        .event-type {
+            font-size: 1.3rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .event-time {
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .event-id {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #f8f9fa;
+            color: #666;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 0.8rem;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
+        .empty-state i {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            border-top: 1px solid #eee;
+            font-size: 0.9rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .events-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 480px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .events-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Header -->
+        <div class="header">
+            <h1>
+                <i class="fas fa-door-closed"></i>
+                Smart Doorbell Dashboard
+            </h1>
+            <p>Überwachung und Verwaltung Ihrer intelligenten Türklingel</p>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-history"></i>
+                </div>
+                <span class="stat-number">{{ stats.total }}</span>
+                <span class="stat-label">Gesamt Events</span>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-bell"></i>
+                </div>
+                <span class="stat-number">{{ stats.rings }}</span>
+                <span class="stat-label">Klingel Events</span>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-running"></i>
+                </div>
+                <span class="stat-number">{{ stats.motions }}</span>
+                <span class="stat-label">Bewegung Events</span>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <span class="stat-number">{{ stats.last_event.split(' ')[0] if stats.last_event != 'Keine Events' else 'Keine' }}</span>
+                <span class="stat-label">Letztes Event</span>
+            </div>
+        </div>
+
+        <!-- Events Section -->
+        <div class="events-section">
+            <h2 class="section-title">
+                <i class="fas fa-list"></i>
+                Letzte Events
+            </h2>
+
+            {% if events %}
+            <div class="events-grid">
+                {% for ev in events %}
+                <a href="{{ url_for('event_detail', event_id=ev.id) }}" 
+                   class="event-button {{ ev.event_type }}">
+                    <div class="event-id">#{{ ev.id }}</div>
+                    <div class="event-icon">
+                        {% if ev.event_type == 'ring' %}
+                            <i class="fas fa-bell"></i>
+                        {% else %}
+                            <i class="fas fa-running"></i>
+                        {% endif %}
+                    </div>
+                    <div class="event-type">
+                        {% if ev.event_type == 'ring' %}
+                            RING
+                        {% else %}
+                            MOTION
+                        {% endif %}
+                    </div>
+                    <div class="event-time">
+                        {{ ev.timestamp.split(' ')[1][:5] }} Uhr
+                    </div>
+                    <div class="event-date">
+                        {{ ev.timestamp.split(' ')[0] }}
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <i class="fas fa-door-open"></i>
+                <h3>Noch keine Events aufgezeichnet</h3>
+                <p>Sobald jemand klingelt oder Bewegung erkannt wird, erscheinen hier die Events.</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>Smart Doorbell System | Letzte Aktualisierung: {{ stats.last_event if stats.last_event != 'Keine Events' else 'Nie' }}</p>
+        </div>
+    </div>
+
+    <script>
+        // Event-Button Animation
+        document.addEventListener('DOMContentLoaded', function() {
+            const buttons = document.querySelectorAll('.event-button');
+            buttons.forEach(button => {
+                button.addEventListener('mouseenter', function() {
+                    this.style.transform = 'translateY(-5px)';
+                });
+                
+                button.addEventListener('mouseleave', function() {
+                    this.style.transform = 'translateY(0)';
+                });
+            });
+        });
+    </script>
+</body>
+</html>
