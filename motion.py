@@ -3,7 +3,7 @@ import RPi.GPIO as GPIO
 import time
 
 # Ändere diesen Wert je nachdem welcher Pin funktioniert
-PIR_PIN = 8  # Probiere: 8, dann 7
+PIR_PIN = 7  # Probiere: 8, dann 7
 
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(PIR_PIN, GPIO.IN)
