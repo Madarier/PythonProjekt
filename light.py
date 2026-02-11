@@ -1,69 +1,74 @@
 #!/usr/bin/env python3
-from pitop import Pitop
-from pitop.common.i2c import I2CDevice
-import time
+from pitop.pma import LightSensor
+from time import sleep
+from datetime import datetime
 
-# Pi-Top initialisieren
-pitop = Pitop()
+# Lichtsensor an A0 initialisieren
+light_sensor = LightSensor("A0")
 
-# I2C ADC initialisieren (Pi-Top hat einen internen ADC)
-I2C_BUS = 1
-ADC_ADDRESS = 0x48  # Standard für Pi-Top ADC
+print("=" * 60)
+print("🌞 PI-TOP LICHTSENSOR TEST (A0)")
+print("=" * 60)
+print("Sensor an A0 angeschlossen")
+print("\n📊 Zeige Lichtwerte in Echtzeit")
+print("   Strg+C zum Beenden")
+print("-" * 60)
 
-def read_light_sensor():
-    """Liest den LDR-Lichtsensor an Port A0 (EZ-Connect)"""
-    try:
-        # I2C-Verbindung öffnen
-        i2c = I2CDevice(I2C_BUS, ADC_ADDRESS)
-        
-        # A0 = Kanal 0
-        # Kommando für Single-Ended, Kanal 0
-        cmd = 0x84
-        i2c.write(cmd.to_bytes(1, 'big'))
-        
-        # Wert lesen (8-bit, 0-255)
-        data = i2c.read(1)
-        value = int.from_bytes(data, 'big')
-        
-        # In Prozent umrechnen (0-100%)
-        percent = (value / 255) * 100
-        
-        return value, percent
-        
-    except Exception as e:
-        print(f"Fehler beim Lesen: {e}")
-        return None, None
-
-print("=" * 50)
-print("PI-TOP LDR LICHTSENSOR TEST")
-print("=" * 50)
-print("Sensor an A0 (EZ-Connect) angeschlossen")
-print("Drücke Strg+C zum Beenden")
-print("-" * 50)
+# Für Statistik
+min_value = 100
+max_value = 0
+samples = []
 
 try:
     while True:
-        value, percent = read_light_sensor()
+        # Sensorwert lesen (0-100)
+        value = light_sensor.reading
+        timestamp = datetime.now().strftime("%H:%M:%S")
         
-        if value is not None:
-            # Einfache Status-Anzeige
-            if percent < 20:
-                status = "🌑 SEHR DUNKEL"
-            elif percent < 40:
-                status = "🌙 DUNKEL"
-            elif percent < 60:
-                status = "⛅ NORMAL"
-            elif percent < 80:
-                status = "☀️ HELL"
-            else:
-                status = "🔥 SEHR HELL"
-            
-            # Klare, einfache Ausgabe
-            print(f"[{time.strftime('%H:%M:%S')}] {status}")
-            print(f"  Wert: {value:3d}/255 | {percent:5.1f}%")
-            print()
+        # Statistik aktualisieren
+        min_value = min(min_value, value)
+        max_value = max(max_value, value)
         
-        time.sleep(0.5)
+        samples.append(value)
+        if len(samples) > 20:
+            samples.pop(0)
+        avg_value = sum(samples) / len(samples)
+        
+        # Lichtstatus bestimmen
+        if value < 10:
+            status = "🌑 SEHR DUNKEL"
+            icon = "⬛"
+        elif value < 25:
+            status = "🌙 DUNKEL"
+            icon = "🌙"
+        elif value < 50:
+            status = "⛅ NORMAL"
+            icon = "⛅"
+        elif value < 75:
+            status = "☀️ HELL"
+            icon = "☀️"
+        else:
+            status = "🔥 SEHR HELL"
+            icon = "🔥"
+        
+        # Balkendiagramm
+        bar_length = int(value / 5)  # 20 Balken = 100%
+        bar = "█" * bar_length + "░" * (20 - bar_length)
+        
+        # Ausgabe
+        print(f"[{timestamp}] {icon} {status}")
+        print(f"   Wert: {value:3.0f}%  [{bar}]")
+        print(f"   Min: {min_value:3.0f}% | Max: {max_value:3.0f}% | Ø: {avg_value:3.0f}%")
+        print()
+        
+        sleep(0.3)
 
 except KeyboardInterrupt:
-    print("\nTest beendet.")
+    print("\n" + "=" * 60)
+    print("📊 TEST BEENDET - STATISTIK")
+    print("=" * 60)
+    print(f"   Minimalwert:  {min_value:.0f}%")
+    print(f"   Maximalwert:  {max_value:.0f}%")
+    print(f"   Durchschnitt: {sum(samples)/len(samples):.0f}%")
+    print(f"   Messungen:    {len(samples)}")
+    print("=" * 60)
