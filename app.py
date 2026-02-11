@@ -3,8 +3,19 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime
 import os
+import threading
+import time
+import RPi.GPIO as GPIO
 
 app = Flask(__name__)
+
+# Pin-Definitionen für Pi-Top (BCM-Nummern!)
+BUTTON_PIN = 26        # D2 = GPIO26 (BCM)
+ULTRASONIC_TRIG = 13   # D7 = GPIO13 (BCM) für TRIG
+ULTRASONIC_ECHO = 6    # D7 = GPIO6 (BCM) für ECHO
+
+# Globale Variablen
+sensor_active = True
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "smart_doorbell.db"
@@ -12,6 +23,96 @@ VIDEO_DIR = BASE_DIR / "static" / "videos"
 
 # Erstelle den Video-Ordner, falls nicht vorhanden
 VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+
+def init_gpio():
+    """Initialisiert die GPIO-Pins für Pi-Top"""
+    try:
+        GPIO.setmode(GPIO.BCM)
+        
+        # Button mit Pull-Up Widerstand (D2)
+        GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        
+        # Ultraschallsensor (D7)
+        GPIO.setup(ULTRASONIC_TRIG, GPIO.OUT)
+        GPIO.setup(ULTRASONIC_ECHO, GPIO.IN)
+        
+        # Initialisiere TRIG auf LOW
+        GPIO.output(ULTRASONIC_TRIG, False)
+        time.sleep(0.5)
+        
+        print("GPIO für Pi-Top initialisiert")
+        print(f"Button an GPIO{BUTTON_PIN} (D2)")
+        print(f"Ultraschall TRIG an GPIO{ULTRASONIC_TRIG} (D7)")
+        print(f"Ultraschall ECHO an GPIO{ULTRASONIC_ECHO} (D7)")
+        
+    except Exception as e:
+        print(f"Fehler bei GPIO-Initialisierung: {e}")
+        raise
+
+def get_distance():
+    """Misst die Distanz mit dem Ultraschallsensor"""
+    try:
+        # Trigger auf HIGH setzen
+        GPIO.output(ULTRASONIC_TRIG, True)
+        time.sleep(0.00001)  # 10µs
+        GPIO.output(ULTRASONIC_TRIG, False)
+        
+        pulse_start = time.time()
+        pulse_end = time.time()
+        
+        # Warte auf Echo START
+        timeout_start = time.time()
+        while GPIO.input(ULTRASONIC_ECHO) == 0:
+            pulse_start = time.time()
+            if time.time() - timeout_start > 0.1:
+                return None
+        
+        # Warte auf Echo ENDE
+        timeout_start = time.time()
+        while GPIO.input(ULTRASONIC_ECHO) == 1:
+            pulse_end = time.time()
+            if time.time() - timeout_start > 0.1:
+                return None
+        
+        # Distanz berechnen
+        pulse_duration = pulse_end - pulse_start
+        distance = pulse_duration * 17150  # Schallgeschwindigkeit in cm/s geteilt durch 2
+        distance = round(distance, 2)
+        
+        # Plausibilitätsprüfung
+        if 2 < distance < 400:  # Gültiger Bereich 2-400 cm
+            return distance
+        else:
+            return None
+            
+    except Exception as e:
+        print(f"Fehler bei Distanzmessung: {e}")
+        return None
+
+def button_callback(channel):
+    """Callback-Funktion für Button-Druck"""
+    if GPIO.input(BUTTON_PIN) == GPIO.LOW:  # Button gedrückt (LOW wegen Pull-Up)
+        print(f"[BUTTON] Button an GPIO{BUTTON_PIN} wurde betätigt!")
+        # Optional: Event in Datenbank speichern
+        # add_event("ring")
+
+def ultrasonic_thread():
+    """Thread für regelmäßige Ultraschall-Messungen"""
+    print("Ultraschall-Thread gestartet - Messung alle 2 Sekunden")
+    
+    while sensor_active:
+        try:
+            distance = get_distance()
+            if distance is not None:
+                print(f"[ULTRASCHALL] Gemessene Distanz: {distance} cm")
+            else:
+                print("[ULTRASCHALL] Keine gültige Messung")
+            
+            time.sleep(2)  # Alle 2 Sekunden messen
+            
+        except Exception as e:
+            print(f"Fehler im Ultraschall-Thread: {e}")
+            time.sleep(1)
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -33,7 +134,6 @@ def add_event(event_type, video_filename=None):
     c = conn.cursor()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # Stelle sicher, dass .mp4 Endung vorhanden ist
     if video_filename and not video_filename.endswith('.mp4'):
         video_filename = video_filename + '.mp4'
     
@@ -43,6 +143,7 @@ def add_event(event_type, video_filename=None):
     """, (timestamp, event_type, video_filename))
     conn.commit()
     conn.close()
+    print(f"Event hinzugefügt: {event_type} um {timestamp}")
 
 def get_events(limit=None):
     """Holt Events aus der Datenbank"""
@@ -67,7 +168,6 @@ def get_events(limit=None):
     rows = c.fetchall()
     conn.close()
     
-    # Konvertiere zu Dictionary
     events_list = []
     for row in rows:
         event = dict(row)
@@ -142,7 +242,7 @@ def event_detail(event_id):
 
 @app.route("/api/events/recent")
 def api_recent_events():
-    """API für die neuesten Events (kann für AJAX-Updates verwendet werden)"""
+    """API für die neuesten Events"""
     events = get_events(limit=10)
     return jsonify(events)
 
@@ -167,13 +267,77 @@ def api_add_event():
 @app.route("/static/videos/<filename>")
 def serve_video(filename):
     """Dient Videos aus dem Videos-Ordner"""
-    # Füge .mp4 hinzu, falls nicht vorhanden
     if not filename.endswith('.mp4'):
         filename = filename + '.mp4'
     
     return send_from_directory(VIDEO_DIR, filename)
 
-if __name__ == "__main__":
-    init_db()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+@app.route("/test_sensors")
+def test_sensors():
+    """Test-Seite für Sensoren"""
+    distance = get_distance()
+    button_state = GPIO.input(BUTTON_PIN)
+    
+    html = f"""
+    <html>
+    <head>
+        <title>Sensor Test</title>
+        <meta http-equiv="refresh" content="2">
+    </head>
+    <body>
+        <h1>Sensor Test</h1>
+        <p><strong>Ultraschall Distanz:</strong> {distance or 'N/A'} cm</p>
+        <p><strong>Button Status:</strong> {'GEDRÜCKT' if button_state == GPIO.LOW else 'NICHT GEDRÜCKT'}</p>
+        <p><a href="/">Zurück zum Dashboard</a></p>
+    </body>
+    </html>
+    """
+    return html
 
+def cleanup():
+    """Aufräumen bei Programmende"""
+    global sensor_active
+    sensor_active = False
+    time.sleep(1)
+    GPIO.cleanup()
+    print("GPIO aufgeräumt")
+
+if __name__ == "__main__":
+    try:
+        # Initialisiere Datenbank
+        init_db()
+        
+        # Initialisiere GPIO
+        init_gpio()
+        
+        # Button-Interrupt einrichten
+        GPIO.add_event_detect(BUTTON_PIN, GPIO.FALLING, 
+                             callback=button_callback, 
+                             bouncetime=300)  # Entprellung 300ms
+        
+        # Ultraschall-Thread starten
+        ultrasonic_thread = threading.Thread(target=ultrasonic_thread, daemon=True)
+        ultrasonic_thread.start()
+        
+        print("\n" + "="*50)
+        print("SMART DOORBELL SYSTEM GESTARTET")
+        print("="*50)
+        print("Dashboard: http://localhost:5000/")
+        print("Sensor Test: http://localhost:5000/test_sensors")
+        print("\nÜberwachung aktiv:")
+        print("- Button an GPIO26 (D2) - Drücke den Button")
+        print("- Ultraschallsensor an GPIO13/6 (D7) - Misst alle 2 Sekunden")
+        print("\nDrücke Strg+C zum Beenden")
+        print("="*50 + "\n")
+        
+        # Flask App starten
+        app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+        
+    except KeyboardInterrupt:
+        print("\n\nProgramm wird beendet...")
+    except Exception as e:
+        print(f"\nFehler: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        cleanup()
