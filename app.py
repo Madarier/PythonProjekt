@@ -2,9 +2,10 @@ from flask import Flask, render_template, request, jsonify, send_from_directory
 import sqlite3
 from pathlib import Path
 from datetime import datetime
-import os
 import threading
 import time
+import subprocess
+import os
 import RPi.GPIO as GPIO
 
 app = Flask(__name__)
@@ -14,9 +15,15 @@ BUTTON_PIN = 26        # D2 = GPIO26 (BCM)
 ULTRASONIC_TRIG = 14   # D7 = GPIO14 (BCM) für TRIG
 ULTRASONIC_ECHO = 15   # D7 = GPIO15 (BCM) für ECHO
 
+# Video-Aufnahme-Einstellungen
+VIDEO_DURATION = 5     # 5 Sekunden Aufnahme
+VIDEO_FPS = 15         # 15 FPS für kleinere Dateien
+VIDEO_RESOLUTION = "640x480"  # Auflösung
+
 # Globale Variablen
 sensor_active = True
 last_button_state = True  # True = nicht gedrückt (wegen Pull-Up)
+recording_active = False  # Verhindert mehrere gleichzeitige Aufnahmen
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "smart_doorbell.db"
@@ -91,6 +98,75 @@ def get_distance():
         print(f"Fehler bei Distanzmessung: {e}")
         return None
 
+def record_video():
+    """Nimmt ein 5-Sekunden Video mit der USB-Webcam auf"""
+    global recording_active
+    
+    if recording_active:
+        print("[VIDEO] Bereits eine Aufnahme aktiv, überspringe...")
+        return None
+    
+    recording_active = True
+    
+    try:
+        # Generiere Dateinamen
+        timestamp = datetime.now()
+        date_str = timestamp.strftime("%Y%m%d")
+        time_str = timestamp.strftime("%H%M%S")
+        filename = f"button_{date_str}{time_str}.mp4"
+        video_path = VIDEO_DIR / filename
+        
+        print(f"[VIDEO] Starte Videoaufnahme: {filename}")
+        
+        # ffmpeg Befehl für Videoaufnahme
+        # -t 5: 5 Sekunden Aufnahme
+        # -s 640x480: Auflösung
+        # -r 15: 15 FPS
+        # -f v4l2: Video4Linux2 Treiber für USB-Kamera
+        # /dev/video0: Standard-Webcam Device
+        
+        cmd = [
+            'ffmpeg',
+            '-f', 'v4l2',          # Video4Linux2 Input Format
+            '-framerate', '15',    # 15 FPS
+            '-video_size', '640x480',  # Auflösung
+            '-i', '/dev/video0',   # Webcam Device
+            '-t', '5',             # 5 Sekunden Aufnahme
+            '-vf', 'format=yuv420p',  # Farbformat
+            '-c:v', 'libx264',     # H.264 Codec
+            '-preset', 'ultrafast', # Schnelle Kodierung
+            '-y',                  # Überschreiben ohne Nachfrage
+            str(video_path)
+        ]
+        
+        # Führe ffmpeg aus
+        process = subprocess.run(
+            cmd, 
+            capture_output=True, 
+            text=True,
+            timeout=10  # Timeout nach 10 Sekunden
+        )
+        
+        if process.returncode == 0:
+            print(f"[VIDEO] Aufnahme erfolgreich gespeichert: {filename}")
+            
+            # Event in Datenbank speichern
+            add_event("ring", filename)
+            
+            return filename
+        else:
+            print(f"[VIDEO] Fehler bei Aufnahme: {process.stderr}")
+            return None
+            
+    except subprocess.TimeoutExpired:
+        print("[VIDEO] Aufnahme-Timeout - Prozess wurde beendet")
+        return None
+    except Exception as e:
+        print(f"[VIDEO] Fehler bei Videoaufnahme: {e}")
+        return None
+    finally:
+        recording_active = False
+
 def button_thread():
     """Separater Thread für Button-Überwachung"""
     global last_button_state
@@ -104,8 +180,10 @@ def button_thread():
             # Button wurde gedrückt (von HIGH auf LOW)
             if last_button_state == True and current_state == False:
                 print(f"[BUTTON] Button an GPIO{BUTTON_PIN} wurde betätigt!")
-                # Optional: Event in Datenbank speichern
-                # add_event("ring")
+                
+                # Starte Videoaufnahme in einem separaten Thread
+                video_thread = threading.Thread(target=record_video, daemon=True)
+                video_thread.start()
             
             # Button wurde losgelassen (von LOW auf HIGH)
             elif last_button_state == False and current_state == True:
@@ -167,7 +245,7 @@ def add_event(event_type, video_filename=None):
     """, (timestamp, event_type, video_filename))
     conn.commit()
     conn.close()
-    print(f"Event hinzugefügt: {event_type} um {timestamp}")
+    print(f"[DATENBANK] Event hinzugefügt: {event_type} um {timestamp}, Video: {video_filename}")
 
 def get_events(limit=None):
     """Holt Events aus der Datenbank"""
@@ -318,24 +396,74 @@ def test_sensors():
     """
     return html
 
-@app.route("/manual_test")
-def manual_test():
-    """Manueller Test der Sensoren"""
-    distance = get_distance()
-    button_state = GPIO.input(BUTTON_PIN)
+@app.route("/test_video")
+def test_video():
+    """Manuelle Testseite für Videoaufnahme"""
+    html = """
+    <html>
+    <head>
+        <title>Video Test</title>
+    </head>
+    <body>
+        <h1>Video Test</h1>
+        <form action="/record_video" method="get">
+            <button type="submit">Manuell 5s Video aufnehmen</button>
+        </form>
+        <p><a href="/">Zurück zum Dashboard</a></p>
+    </body>
+    </html>
+    """
+    return html
+
+@app.route("/record_video")
+def manual_record_video():
+    """Manuelle Videoaufnahme starten"""
+    result = record_video()
     
-    response = {
-        "distance": distance,
-        "button_state": "GEDRÜCKT" if button_state == GPIO.LOW else "NICHT GEDRÜCKT"
-    }
-    
-    return jsonify(response)
+    if result:
+        return jsonify({
+            "status": "success", 
+            "message": f"Videoaufnahme gestartet: {result}",
+            "filename": result
+        })
+    else:
+        return jsonify({
+            "status": "error", 
+            "message": "Videoaufnahme fehlgeschlagen"
+        }), 500
+
+@app.route("/check_webcam")
+def check_webcam():
+    """Prüft ob die Webcam verfügbar ist"""
+    try:
+        # Prüfe ob /dev/video0 existiert
+        if os.path.exists('/dev/video0'):
+            # Versuche Video-Informationen zu bekommen
+            cmd = ['v4l2-ctl', '--device=/dev/video0', '--list-formats']
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            return jsonify({
+                "status": "available",
+                "device": "/dev/video0",
+                "formats": result.stdout if result.returncode == 0 else "Unknown"
+            })
+        else:
+            return jsonify({
+                "status": "not_found",
+                "message": "Webcam /dev/video0 nicht gefunden"
+            }), 404
+            
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 def cleanup():
     """Aufräumen bei Programmende"""
     global sensor_active
     sensor_active = False
-    time.sleep(1)
+    time.sleep(2)  # Warte auf Threads
     
     try:
         GPIO.cleanup()
@@ -345,6 +473,22 @@ def cleanup():
 
 if __name__ == "__main__":
     try:
+        # Prüfe ob ffmpeg installiert ist
+        try:
+            subprocess.run(['ffmpeg', '-version'], capture_output=True)
+            print("ffmpeg gefunden - Videoaufnahme möglich")
+        except FileNotFoundError:
+            print("WARNUNG: ffmpeg nicht installiert. Videoaufnahme nicht möglich.")
+            print("Installiere mit: sudo apt install ffmpeg")
+        
+        # Prüfe Webcam
+        print("\nPrüfe Webcam...")
+        if os.path.exists('/dev/video0'):
+            print("Webcam /dev/video0 gefunden")
+        else:
+            print("WARNUNG: Webcam /dev/video0 nicht gefunden!")
+            print("Stelle sicher, dass die USB-Webcam angeschlossen ist.")
+        
         # Initialisiere Datenbank
         init_db()
         
@@ -358,17 +502,22 @@ if __name__ == "__main__":
         button_thread_obj.start()
         ultrasonic_thread_obj.start()
         
-        print("\n" + "="*50)
+        print("\n" + "="*60)
         print("SMART DOORBELL SYSTEM GESTARTET")
-        print("="*50)
+        print("="*60)
         print("Dashboard: http://localhost:5000/")
         print("Sensor Test: http://localhost:5000/test_sensors")
-        print("Manueller Test: http://localhost:5000/manual_test")
+        print("Video Test: http://localhost:5000/test_video")
+        print("Webcam Check: http://localhost:5000/check_webcam")
         print("\nÜberwachung aktiv:")
-        print("- Button an GPIO26 (D2) - Sofortige Reaktion")
-        print("- Ultraschallsensor an GPIO14/15 (D7) - Misst alle 2 Sekunden")
+        print(f"- Button an GPIO{BUTTON_PIN} (D2) - Startet 5s Videoaufnahme")
+        print(f"- Ultraschallsensor an GPIO{ULTRASONIC_TRIG}/{ULTRASONIC_ECHO} (D7)")
+        print("\nVideo-Einstellungen:")
+        print(f"- Dauer: {VIDEO_DURATION} Sekunden")
+        print(f"- Auflösung: {VIDEO_RESOLUTION}")
+        print(f"- FPS: {VIDEO_FPS}")
         print("\nDrücke Strg+C zum Beenden")
-        print("="*50 + "\n")
+        print("="*60 + "\n")
         
         # Flask App starten
         app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
