@@ -17,8 +17,8 @@ ULTRASONIC_ECHO = 15   # D7 = GPIO15 (BCM) für ECHO
 
 # Video-Aufnahme-Einstellungen
 VIDEO_DURATION = 5     # 5 Sekunden Aufnahme
-VIDEO_FPS = 15         # 15 FPS für kleinere Dateien
-VIDEO_RESOLUTION = "640x480"  # Auflösung
+VIDEO_FPS = 30         # 15 FPS für kleinere Dateien
+VIDEO_RESOLUTION = "1920x1080"  # Auflösung
 
 # Globale Variablen
 sensor_active = True
