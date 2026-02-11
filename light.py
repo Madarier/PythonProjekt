@@ -2,18 +2,20 @@
 import time
 import RPi.GPIO as GPIO
 from pitop import Pitop
-from pitop.labs import ADCDevice
+from pitop.pma import AnalogSensor, LightSensor
 
 # Initialisiere Pi-Top
 pitop = Pitop()
 
-# ADC initialisieren (für analoge Eingänge)
-# Der Pi-Top hat intern einen ADS7830 oder ähnlichen ADC
-adc = ADCDevice()
-
-# Sensor an A0 angeschlossen
-# A0 = P1/P0 = Kanal 0 des ADC
-LIGHT_SENSOR_PIN = 0  # Kanal 0 für A0
+# Option 1: Mit LightSensor Klasse (empfohlen)
+# Der Pi-Top hat spezielle Sensorklassen
+try:
+    light = LightSensor("A0")  # Direkt an A0
+    print("LightSensor erfolgreich initialisiert")
+except:
+    print("LightSensor nicht verfügbar, verwende AnalogSensor...")
+    # Option 2: Mit AnalogSensor Klasse
+    light = AnalogSensor("A0")  # Allgemeiner analoger Sensor
 
 GPIO.setmode(GPIO.BCM)
 GPIO.setwarnings(False)
@@ -28,19 +30,26 @@ print("-" * 60)
 def read_light():
     """Liest den aktuellen Lichtwert vom A0"""
     try:
-        # Analogwert lesen (0-255 bei 8-bit ADC)
-        value = adc.analog_read(LIGHT_SENSOR_PIN)
-        
-        # In Spannung umrechnen (3.3V Referenz)
-        voltage = round(value / 255.0 * 3.3, 2)
-        
-        # Prozentwert (0-100%)
-        percentage = round(value / 255.0 * 100, 1)
-        
-        return value, voltage, percentage
+        # Verschiedene Methoden je nach verfügbarer Klasse
+        if hasattr(light, 'reading'):
+            value = light.reading  # LightSensor
+        elif hasattr(light, 'value'):
+            value = light.value    # AnalogSensor
+        else:
+            value = light.read()   # Fallback
+            
+        # Wert normalisieren (0-100%)
+        if value > 100:  # Wahrscheinlich 0-1023 oder 0-255
+            percentage = min(100, value / 1023 * 100)
+            normalized = value
+        else:  # Bereits 0-100
+            percentage = value
+            normalized = value * 10.23
+            
+        return normalized, percentage
     except Exception as e:
         print(f"Fehler beim Lesen: {e}")
-        return None, None, None
+        return None, None
 
 try:
     # Erstes paar Messungen für Kalibrierung
@@ -48,7 +57,7 @@ try:
     time.sleep(2)
     
     # Speichere Minimal- und Maximalwerte
-    min_value = 255
+    min_value = 1000
     max_value = 0
     samples = []
     
@@ -56,17 +65,17 @@ try:
     print("-" * 60)
     
     while True:
-        value, voltage, percentage = read_light()
+        raw_value, percentage = read_light()
         
-        if value is not None:
+        if raw_value is not None:
             # Aktualisiere Min/Max
-            min_value = min(min_value, value)
-            max_value = max(max_value, value)
+            min_value = min(min_value, raw_value)
+            max_value = max(max_value, raw_value)
             
-            samples.append(value)
+            samples.append(percentage)
             if len(samples) > 10:
                 samples.pop(0)
-            avg_value = sum(samples) / len(samples)
+            avg_percentage = sum(samples) / len(samples)
             
             # Lichtstärke als Balken visualisieren
             bar_length = int(percentage / 5)  # 20 Balken = 100%
@@ -76,22 +85,22 @@ try:
             timestamp = time.strftime("%H:%M:%S")
             
             # Lichtstatus bestimmen
-            if value < 50:
+            if percentage < 10:
                 status = "🌑 SEHR DUNKEL"
-            elif value < 100:
+            elif percentage < 25:
                 status = "🌙 DUNKEL"
-            elif value < 150:
+            elif percentage < 50:
                 status = "⛅ NORMAL"
-            elif value < 200:
+            elif percentage < 75:
                 status = "☀️ HELL"
             else:
                 status = "🔥 SEHR HELL"
             
             # Ausgabe
             print(f"[{timestamp}] {status}")
-            print(f"  Wert: {value:3d}/255 | Spannung: {voltage:.2f}V | {percentage:5.1f}%")
+            print(f"  Wert: {raw_value:3.0f} | {percentage:5.1f}%")
             print(f"  [{bar}]")
-            print(f"  Min: {min_value:3d} | Max: {max_value:3d} | Avg: {avg_value:3.0f}")
+            print(f"  Min: {min_value:3.0f} | Max: {max_value:3.0f} | Avg: {avg_percentage:3.0f}%")
             print()
         
         time.sleep(0.5)
@@ -99,9 +108,9 @@ try:
 except KeyboardInterrupt:
     print("\n\nTest beendet.")
     print(f"\nStatistik während der Messung:")
-    print(f"  Minimalwert: {min_value}")
-    print(f"  Maximalwert: {max_value}")
-    print(f"  Dynamikumfang: {max_value - min_value}")
+    print(f"  Minimalwert: {min_value:.0f}")
+    print(f"  Maximalwert: {max_value:.0f}")
+    print(f"  Dynamikumfang: {max_value - min_value:.0f}")
 
 except Exception as e:
     print(f"\nFehler: {e}")
