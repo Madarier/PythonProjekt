@@ -11,8 +11,8 @@ app = Flask(__name__)
 
 # Pin-Definitionen für Pi-Top (BCM-Nummern!)
 BUTTON_PIN = 26        # D2 = GPIO26 (BCM)
-ULTRASONIC_TRIG = 13   # D7 = GPIO13 (BCM) für TRIG
-ULTRASONIC_ECHO = 6    # D7 = GPIO6 (BCM) für ECHO
+ULTRASONIC_TRIG = 14   # D7 = GPIO13 (BCM) für TRIG
+ULTRASONIC_ECHO = 15   # D7 = GPIO6 (BCM) für ECHO
 
 # Globale Variablen
 sensor_active = True
