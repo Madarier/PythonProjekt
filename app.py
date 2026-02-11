@@ -16,6 +16,7 @@ ULTRASONIC_ECHO = 6    # D7 = GPIO6 (BCM) für ECHO
 
 # Globale Variablen
 sensor_active = True
+last_button_state = True  # True = nicht gedrückt (wegen Pull-Up)
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "smart_doorbell.db"
@@ -28,6 +29,7 @@ def init_gpio():
     """Initialisiert die GPIO-Pins für Pi-Top"""
     try:
         GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)  # Warnungen deaktivieren
         
         # Button mit Pull-Up Widerstand (D2)
         GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
@@ -89,29 +91,52 @@ def get_distance():
         print(f"Fehler bei Distanzmessung: {e}")
         return None
 
-def button_callback(channel):
-    """Callback-Funktion für Button-Druck"""
-    if GPIO.input(BUTTON_PIN) == GPIO.LOW:  # Button gedrückt (LOW wegen Pull-Up)
-        print(f"[BUTTON] Button an GPIO{BUTTON_PIN} wurde betätigt!")
-        # Optional: Event in Datenbank speichern
-        # add_event("ring")
+def check_button():
+    """Prüft den Button-Status manuell"""
+    global last_button_state
+    
+    try:
+        current_state = GPIO.input(BUTTON_PIN)
+        
+        # Button wurde gedrückt (von HIGH auf LOW)
+        if last_button_state == True and current_state == False:
+            print(f"[BUTTON] Button an GPIO{BUTTON_PIN} wurde betätigt!")
+            # Optional: Event in Datenbank speichern
+            # add_event("ring")
+            return True
+        
+        # Button wurde losgelassen (von LOW auf HIGH)
+        elif last_button_state == False and current_state == True:
+            print(f"[BUTTON] Button an GPIO{BUTTON_PIN} wurde losgelassen!")
+            return False
+        
+        last_button_state = current_state
+        return None
+        
+    except Exception as e:
+        print(f"Fehler bei Button-Check: {e}")
+        return None
 
-def ultrasonic_thread():
-    """Thread für regelmäßige Ultraschall-Messungen"""
-    print("Ultraschall-Thread gestartet - Messung alle 2 Sekunden")
+def sensor_thread():
+    """Thread für regelmäßige Sensoren-Überwachung"""
+    print("Sensor-Thread gestartet")
     
     while sensor_active:
         try:
+            # Ultraschall-Messung
             distance = get_distance()
             if distance is not None:
                 print(f"[ULTRASCHALL] Gemessene Distanz: {distance} cm")
             else:
                 print("[ULTRASCHALL] Keine gültige Messung")
             
+            # Button-Check
+            check_button()
+            
             time.sleep(2)  # Alle 2 Sekunden messen
             
         except Exception as e:
-            print(f"Fehler im Ultraschall-Thread: {e}")
+            print(f"Fehler im Sensor-Thread: {e}")
             time.sleep(1)
 
 def init_db():
@@ -294,13 +319,31 @@ def test_sensors():
     """
     return html
 
+@app.route("/manual_test")
+def manual_test():
+    """Manueller Test der Sensoren"""
+    distance = get_distance()
+    button_pressed = check_button()
+    
+    response = {
+        "distance": distance,
+        "button_pressed": button_pressed,
+        "button_state": "GEDRÜCKT" if GPIO.input(BUTTON_PIN) == GPIO.LOW else "NICHT GEDRÜCKT"
+    }
+    
+    return jsonify(response)
+
 def cleanup():
     """Aufräumen bei Programmende"""
     global sensor_active
     sensor_active = False
     time.sleep(1)
-    GPIO.cleanup()
-    print("GPIO aufgeräumt")
+    
+    try:
+        GPIO.cleanup()
+        print("GPIO aufgeräumt")
+    except:
+        pass
 
 if __name__ == "__main__":
     try:
@@ -310,20 +353,16 @@ if __name__ == "__main__":
         # Initialisiere GPIO
         init_gpio()
         
-        # Button-Interrupt einrichten
-        GPIO.add_event_detect(BUTTON_PIN, GPIO.FALLING, 
-                             callback=button_callback, 
-                             bouncetime=300)  # Entprellung 300ms
-        
-        # Ultraschall-Thread starten
-        ultrasonic_thread = threading.Thread(target=ultrasonic_thread, daemon=True)
-        ultrasonic_thread.start()
+        # Sensor-Thread starten (inkl. Button-Check)
+        sensor_thread = threading.Thread(target=sensor_thread, daemon=True)
+        sensor_thread.start()
         
         print("\n" + "="*50)
         print("SMART DOORBELL SYSTEM GESTARTET")
         print("="*50)
         print("Dashboard: http://localhost:5000/")
         print("Sensor Test: http://localhost:5000/test_sensors")
+        print("Manueller Test: http://localhost:5000/manual_test")
         print("\nÜberwachung aktiv:")
         print("- Button an GPIO26 (D2) - Drücke den Button")
         print("- Ultraschallsensor an GPIO13/6 (D7) - Misst alle 2 Sekunden")
