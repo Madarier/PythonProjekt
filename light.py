@@ -1,24 +1,8 @@
 #!/usr/bin/env python3
 import time
-import RPi.GPIO as GPIO
 from pitop import Pitop
-from pitop.pma import AnalogSensor, LightSensor
-
-# Initialisiere Pi-Top
-pitop = Pitop()
-
-# Option 1: Mit LightSensor Klasse (empfohlen)
-# Der Pi-Top hat spezielle Sensorklassen
-try:
-    light = LightSensor("A0")  # Direkt an A0
-    print("LightSensor erfolgreich initialisiert")
-except:
-    print("LightSensor nicht verfügbar, verwende AnalogSensor...")
-    # Option 2: Mit AnalogSensor Klasse
-    light = AnalogSensor("A0")  # Allgemeiner analoger Sensor
-
-GPIO.setmode(GPIO.BCM)
-GPIO.setwarnings(False)
+from pitop.common.i2c import I2CDevice
+import smbus
 
 print("=" * 60)
 print("PI-TOP LICHTSENSOR TEST (A0)")
@@ -27,94 +11,133 @@ print("Sensor an A0 (P1/P0) angeschlossen")
 print("\nDrücke Strg+C zum Beenden")
 print("-" * 60)
 
-def read_light():
-    """Liest den aktuellen Lichtwert vom A0"""
+# I2C Konfiguration für Pi-Top ADC
+I2C_BUS = 1
+ADC_ADDRESS = 0x48  # Typische Pi-Top ADC Adresse
+
+def read_ads7830(channel=0):
+    """Liest Kanal 0-7 vom ADS7830 ADC"""
     try:
-        # Verschiedene Methoden je nach verfügbarer Klasse
-        if hasattr(light, 'reading'):
-            value = light.reading  # LightSensor
-        elif hasattr(light, 'value'):
-            value = light.value    # AnalogSensor
+        bus = smbus.SMBus(I2C_BUS)
+        
+        # ADS7830 Kommando: 
+        # Bit 7: 1 = Start
+        # Bit 6-4: 100 = Single-Ended Mode
+        # Bit 3-2: SD, SEL1, SEL0 für Kanalwahl
+        # Bit 1-0: 00 (reserviert)
+        
+        if channel == 0:
+            cmd = 0x84  # Kanal 0
+        elif channel == 1:
+            cmd = 0xC4  # Kanal 1
+        elif channel == 2:
+            cmd = 0x94  # Kanal 2
+        elif channel == 3:
+            cmd = 0xD4  # Kanal 3
+        elif channel == 4:
+            cmd = 0xA4  # Kanal 4
+        elif channel == 5:
+            cmd = 0xE4  # Kanal 5
+        elif channel == 6:
+            cmd = 0xB4  # Kanal 6
+        elif channel == 7:
+            cmd = 0xF4  # Kanal 7
         else:
-            value = light.read()   # Fallback
+            return 0
             
-        # Wert normalisieren (0-100%)
-        if value > 100:  # Wahrscheinlich 0-1023 oder 0-255
-            percentage = min(100, value / 1023 * 100)
-            normalized = value
-        else:  # Bereits 0-100
-            percentage = value
-            normalized = value * 10.23
-            
-        return normalized, percentage
+        bus.write_byte(ADC_ADDRESS, cmd)
+        value = bus.read_byte(ADC_ADDRESS)
+        bus.close()
+        return value
+        
     except Exception as e:
-        print(f"Fehler beim Lesen: {e}")
-        return None, None
+        print(f"I2C Fehler: {e}")
+        return None
+
+def read_light():
+    """Liest Lichtwert von A0"""
+    # A0 = Kanal 0
+    raw_value = read_ads7830(0)
+    
+    if raw_value is not None:
+        # In Prozent umrechnen (0-255 -> 0-100%)
+        percentage = (raw_value / 255) * 100
+        
+        # Spannung berechnen (3.3V Referenz)
+        voltage = (raw_value / 255) * 3.3
+        
+        return raw_value, percentage, voltage
+    else:
+        return None, None, None
 
 try:
-    # Erstes paar Messungen für Kalibrierung
-    print("Kalibriere Sensor... bitte 2 Sekunden warten")
+    # Teste I2C Verbindung
+    print("Prüfe I2C Verbindung...")
+    bus = smbus.SMBus(1)
+    bus.read_byte(ADC_ADDRESS)
+    bus.close()
+    print(f"✓ ADC gefunden an Adresse 0x{ADC_ADDRESS:02X}")
+    print()
+    
+    # Kalibrierung
+    print("Kalibriere Sensor... 2 Sekunden")
     time.sleep(2)
     
-    # Speichere Minimal- und Maximalwerte
-    min_value = 1000
-    max_value = 0
+    min_val = 255
+    max_val = 0
     samples = []
     
-    print("\nStarte Messung alle 0.5 Sekunden:")
+    print("Starte Messung (alle 0.5s):")
     print("-" * 60)
     
     while True:
-        raw_value, percentage = read_light()
+        raw, percent, voltage = read_light()
         
-        if raw_value is not None:
-            # Aktualisiere Min/Max
-            min_value = min(min_value, raw_value)
-            max_value = max(max_value, raw_value)
+        if raw is not None:
+            # Min/Max aktualisieren
+            min_val = min(min_val, raw)
+            max_val = max(max_val, raw)
             
-            samples.append(percentage)
+            samples.append(percent)
             if len(samples) > 10:
                 samples.pop(0)
-            avg_percentage = sum(samples) / len(samples)
+            avg_percent = sum(samples) / len(samples)
             
-            # Lichtstärke als Balken visualisieren
-            bar_length = int(percentage / 5)  # 20 Balken = 100%
-            bar = "█" * bar_length + "░" * (20 - bar_length)
-            
-            # Zeitstempel
-            timestamp = time.strftime("%H:%M:%S")
-            
-            # Lichtstatus bestimmen
-            if percentage < 10:
+            # Status bestimmen
+            if percent < 10:
                 status = "🌑 SEHR DUNKEL"
-            elif percentage < 25:
+            elif percent < 25:
                 status = "🌙 DUNKEL"
-            elif percentage < 50:
+            elif percent < 50:
                 status = "⛅ NORMAL"
-            elif percentage < 75:
+            elif percent < 75:
                 status = "☀️ HELL"
             else:
                 status = "🔥 SEHR HELL"
             
+            # Balkenanzeige
+            bars = int(percent / 5)
+            bar = "█" * bars + "░" * (20 - bars)
+            
             # Ausgabe
-            print(f"[{timestamp}] {status}")
-            print(f"  Wert: {raw_value:3.0f} | {percentage:5.1f}%")
+            print(f"[{time.strftime('%H:%M:%S')}] {status}")
+            print(f"  Rohwert: {raw:3d}/255 | {percent:5.1f}% | {voltage:.2f}V")
             print(f"  [{bar}]")
-            print(f"  Min: {min_value:3.0f} | Max: {max_value:3.0f} | Avg: {avg_percentage:3.0f}%")
+            print(f"  Min: {min_val:3d} | Max: {max_val:3d} | Ø: {avg_percent:3.0f}%")
             print()
         
         time.sleep(0.5)
 
 except KeyboardInterrupt:
-    print("\n\nTest beendet.")
-    print(f"\nStatistik während der Messung:")
-    print(f"  Minimalwert: {min_value:.0f}")
-    print(f"  Maximalwert: {max_value:.0f}")
-    print(f"  Dynamikumfang: {max_value - min_value:.0f}")
+    print("\n\nTest beendet!")
+    print(f"\nStatistik:")
+    print(f"  Minimal: {min_val}")
+    print(f"  Maximal: {max_val}")
+    print(f"  Bereich: {max_val - min_val}")
 
 except Exception as e:
     print(f"\nFehler: {e}")
-
-finally:
-    GPIO.cleanup()
-    print("GPIO aufgeräumt")
+    print("\nMögliche Lösungen:")
+    print("1. Prüfe ob der Sensor richtig an A0 angeschlossen ist")
+    print("2. Führe aus: sudo i2cdetect -y 1")
+    print("3. Installiere: sudo apt install python3-smbus")
