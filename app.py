@@ -11,8 +11,8 @@ app = Flask(__name__)
 
 # Pin-Definitionen für Pi-Top (BCM-Nummern!)
 BUTTON_PIN = 26        # D2 = GPIO26 (BCM)
-ULTRASONIC_TRIG = 14   # D7 = GPIO13 (BCM) für TRIG
-ULTRASONIC_ECHO = 15   # D7 = GPIO6 (BCM) für ECHO
+ULTRASONIC_TRIG = 14   # D7 = GPIO14 (BCM) für TRIG
+ULTRASONIC_ECHO = 15   # D7 = GPIO15 (BCM) für ECHO
 
 # Globale Variablen
 sensor_active = True
@@ -91,52 +91,51 @@ def get_distance():
         print(f"Fehler bei Distanzmessung: {e}")
         return None
 
-def check_button():
-    """Prüft den Button-Status manuell"""
+def button_thread():
+    """Separater Thread für Button-Überwachung"""
     global last_button_state
     
-    try:
-        current_state = GPIO.input(BUTTON_PIN)
-        
-        # Button wurde gedrückt (von HIGH auf LOW)
-        if last_button_state == True and current_state == False:
-            print(f"[BUTTON] Button an GPIO{BUTTON_PIN} wurde betätigt!")
-            # Optional: Event in Datenbank speichern
-            # add_event("ring")
-            return True
-        
-        # Button wurde losgelassen (von LOW auf HIGH)
-        elif last_button_state == False and current_state == True:
-            print(f"[BUTTON] Button an GPIO{BUTTON_PIN} wurde losgelassen!")
-            return False
-        
-        last_button_state = current_state
-        return None
-        
-    except Exception as e:
-        print(f"Fehler bei Button-Check: {e}")
-        return None
-
-def sensor_thread():
-    """Thread für regelmäßige Sensoren-Überwachung"""
-    print("Sensor-Thread gestartet")
+    print("Button-Thread gestartet - Sofortige Reaktion")
     
     while sensor_active:
         try:
-            # Ultraschall-Messung
+            current_state = GPIO.input(BUTTON_PIN)
+            
+            # Button wurde gedrückt (von HIGH auf LOW)
+            if last_button_state == True and current_state == False:
+                print(f"[BUTTON] Button an GPIO{BUTTON_PIN} wurde betätigt!")
+                # Optional: Event in Datenbank speichern
+                # add_event("ring")
+            
+            # Button wurde losgelassen (von LOW auf HIGH)
+            elif last_button_state == False and current_state == True:
+                print(f"[BUTTON] Button an GPIO{BUTTON_PIN} wurde losgelassen!")
+            
+            last_button_state = current_state
+            
+            # Sehr kurze Pause für schnelle Reaktion
+            time.sleep(0.05)  # 50ms - sehr schnell
+            
+        except Exception as e:
+            print(f"Fehler im Button-Thread: {e}")
+            time.sleep(0.1)
+
+def ultrasonic_thread():
+    """Thread für regelmäßige Ultraschall-Messungen"""
+    print("Ultraschall-Thread gestartet - Messung alle 2 Sekunden")
+    
+    while sensor_active:
+        try:
             distance = get_distance()
             if distance is not None:
                 print(f"[ULTRASCHALL] Gemessene Distanz: {distance} cm")
             else:
                 print("[ULTRASCHALL] Keine gültige Messung")
             
-            # Button-Check
-            check_button()
-            
             time.sleep(2)  # Alle 2 Sekunden messen
             
         except Exception as e:
-            print(f"Fehler im Sensor-Thread: {e}")
+            print(f"Fehler im Ultraschall-Thread: {e}")
             time.sleep(1)
 
 def init_db():
@@ -323,12 +322,11 @@ def test_sensors():
 def manual_test():
     """Manueller Test der Sensoren"""
     distance = get_distance()
-    button_pressed = check_button()
+    button_state = GPIO.input(BUTTON_PIN)
     
     response = {
         "distance": distance,
-        "button_pressed": button_pressed,
-        "button_state": "GEDRÜCKT" if GPIO.input(BUTTON_PIN) == GPIO.LOW else "NICHT GEDRÜCKT"
+        "button_state": "GEDRÜCKT" if button_state == GPIO.LOW else "NICHT GEDRÜCKT"
     }
     
     return jsonify(response)
@@ -353,9 +351,12 @@ if __name__ == "__main__":
         # Initialisiere GPIO
         init_gpio()
         
-        # Sensor-Thread starten (inkl. Button-Check)
-        sensor_thread = threading.Thread(target=sensor_thread, daemon=True)
-        sensor_thread.start()
+        # Zwei separate Threads starten
+        button_thread_obj = threading.Thread(target=button_thread, daemon=True)
+        ultrasonic_thread_obj = threading.Thread(target=ultrasonic_thread, daemon=True)
+        
+        button_thread_obj.start()
+        ultrasonic_thread_obj.start()
         
         print("\n" + "="*50)
         print("SMART DOORBELL SYSTEM GESTARTET")
@@ -364,8 +365,8 @@ if __name__ == "__main__":
         print("Sensor Test: http://localhost:5000/test_sensors")
         print("Manueller Test: http://localhost:5000/manual_test")
         print("\nÜberwachung aktiv:")
-        print("- Button an GPIO26 (D2) - Drücke den Button")
-        print("- Ultraschallsensor an GPIO13/6 (D7) - Misst alle 2 Sekunden")
+        print("- Button an GPIO26 (D2) - Sofortige Reaktion")
+        print("- Ultraschallsensor an GPIO14/15 (D7) - Misst alle 2 Sekunden")
         print("\nDrücke Strg+C zum Beenden")
         print("="*50 + "\n")
         
