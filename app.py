@@ -25,7 +25,7 @@ VIDEO_FPS = 30
 VIDEO_RESOLUTION = "640x480"
 
 # Motion-Einstellungen
-MOTION_THRESHOLD = 5    # 5 Bewegungen
+MOTION_THRESHOLD = 30    # 30 Bewegungen
 MOTION_TIMEFRAME = 3     # in 3 Sekunden
 
 # Lichtsensor-Einstellungen
