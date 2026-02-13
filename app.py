@@ -185,65 +185,67 @@ def button_pressed():
     video_thread.start()
 
 def motion_thread():
-    """Thread für PIR-Bewegungssensor mit Cooldown und Entprellung"""
+    """Thread für PIR-Bewegungssensor - NUR bei Zustandsänderung"""
     print("Motion-Thread gestartet - Überwache Bewegungen")
     
-    # PIR Sensor kalibrieren
-    print("PIR Sensor kalibriert sich... 15 Sekunden")
-    for i in range(15, 0, -1):
+    # WICHTIG: PIR Sensor braucht Zeit zum Kalibrieren!
+    print("PIR Sensor kalibriert sich... 20 Sekunden warten")
+    for i in range(20, 0, -1):
         print(f"  Kalibrierung: {i} Sekunden...", end='\r')
         time.sleep(1)
     print("  Kalibrierung: Fertig!            ")
-    print("PIR Sensor bereit!")
+    print("PIR Sensor bereit - Reagiere NUR auf Zustandsänderungen")
     
-    # Variablen für Cooldown und Entprellung
+    # Variablen für Zustandsänderung und Cooldown
+    last_state = False
     cooldown_until = 0
-    last_motion_time = 0
-    motion_count = 0
+    motion_count_total = 0
     
     while sensor_active:
         try:
             now = time.time()
+            current_state = GPIO.input(PIR_PIN)
             
-            # Cooldown: Nach erkannter Bewegung 2 Sekunden Pause
+            # Cooldown: Nach erkannter Bewegung 3 Sekunden Pause
             if now < cooldown_until:
                 time.sleep(0.05)
                 continue
             
-            if GPIO.input(PIR_PIN):
-                # Bewegung erkannt
-                current_time = now
+            # NUR bei WECHSEL von LOW zu HIGH (steigende Flanke)
+            if current_state == True and last_state == False:
+                motion_count_total += 1
+                motion_times.append(now)
                 
-                # Entprellung: Mindestens 0.5 Sekunden seit letzter Bewegung
-                if current_time - last_motion_time > 0.5:
-                    motion_times.append(current_time)
-                    print(f"\n[🏃 MOTION] Bewegung erkannt um {current_time:.0f}")
+                print(f"\n[🏃 MOTION] Bewegung #{motion_count_total} um {now:.0f}")
+                
+                # Cooldown für 3 Sekunden setzen - verhindert Dauerfeuer
+                cooldown_until = now + 3
+                
+                # Alte Bewegungen entfernen (> MOTION_TIMEFRAME Sekunden)
+                motion_times = [t for t in motion_times if now - t <= MOTION_TIMEFRAME]
+                
+                print(f"  Bewegungen in letzten {MOTION_TIMEFRAME}s: {len(motion_times)}/{MOTION_THRESHOLD}")
+                
+                # Prüfen ob Schwellwert erreicht
+                if len(motion_times) >= MOTION_THRESHOLD:
+                    print(f"  ⚠️  SCHWELLE ERREICHT! Starte {VIDEO_DURATION_MOTION}s Videoaufnahme")
                     
-                    # Cooldown für 2 Sekunden setzen
-                    cooldown_until = current_time + 2
-                    last_motion_time = current_time
-                    motion_count += 1
+                    video_thread = threading.Thread(
+                        target=record_video,
+                        args=("motion", VIDEO_DURATION_MOTION),
+                        daemon=True
+                    )
+                    video_thread.start()
                     
-                    # Alte Einträge entfernen
-                    motion_times = [t for t in motion_times if current_time - t <= MOTION_TIMEFRAME]
+                    # Reset nach erfolgreicher Auslösung
+                    motion_times = []
+                    motion_count_total = 0
                     
-                    print(f"  Bewegungen in letzten {MOTION_TIMEFRAME}s: {len(motion_times)}/{MOTION_THRESHOLD}")
-                    
-                    # Prüfen ob Schwellwert erreicht
-                    if len(motion_times) >= MOTION_THRESHOLD:
-                        print(f"  ⚠️  SCHWELLE ERREICHT! Starte {VIDEO_DURATION_MOTION}s Videoaufnahme")
-                        
-                        video_thread = threading.Thread(
-                            target=record_video,
-                            args=("motion", VIDEO_DURATION_MOTION),
-                            daemon=True
-                        )
-                        video_thread.start()
-                        motion_times = []  # Reset nach Auslösung
-                        motion_count = 0
-                        # Extra langer Cooldown nach Video
-                        cooldown_until = current_time + 5
+                    # Extra langer Cooldown nach Video (8 Sekunden)
+                    cooldown_until = now + 8
             
+            # Aktuellen Zustand für nächsten Durchlauf speichern
+            last_state = current_state
             time.sleep(0.05)  # 50ms Abtastrate
             
         except Exception as e:
