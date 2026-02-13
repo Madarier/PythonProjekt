@@ -7,6 +7,7 @@ import time
 import subprocess
 import os
 import RPi.GPIO as GPIO
+from pitop.pma import LED, Button, LightSensor
 
 app = Flask(__name__)
 
@@ -14,16 +15,29 @@ app = Flask(__name__)
 BUTTON_PIN = 26        # D2 = GPIO26 (BCM)
 ULTRASONIC_TRIG = 14   # D7 = GPIO14 (BCM) für TRIG
 ULTRASONIC_ECHO = 15   # D7 = GPIO15 (BCM) für ECHO
+PIR_PIN = 7            # D4 = GPIO7 (BCM) für PIR Bewegungssensor
+LED_PIN = 17           # D0 = GPIO17 (BCM) für LED
 
 # Video-Aufnahme-Einstellungen
-VIDEO_DURATION = 5     # 5 Sekunden Aufnahme
-VIDEO_FPS = 30         # 15 FPS für kleinere Dateien
-VIDEO_RESOLUTION = "640x480"  # Auflösung
+VIDEO_DURATION_BUTTON = 10  # 10 Sekunden Aufnahme bei Button
+VIDEO_DURATION_MOTION = 5   # 5 Sekunden Aufnahme bei Motion
+VIDEO_FPS = 30
+VIDEO_RESOLUTION = "640x480"
+
+# Motion-Einstellungen
+MOTION_THRESHOLD = 20    # 20 Bewegungen
+MOTION_TIMEFRAME = 3     # in 3 Sekunden
+
+# Lichtsensor-Einstellungen
+DARKNESS_THRESHOLD = 20  # Unter 20% = dunkel
+LED_CHECK_INTERVAL = 2   # Alle 2 Sekunden prüfen
 
 # Globale Variablen
 sensor_active = True
 last_button_state = True  # True = nicht gedrückt (wegen Pull-Up)
 recording_active = False  # Verhindert mehrere gleichzeitige Aufnahmen
+motion_times = []        # Zeitstempel für Bewegungen
+led_on_dark = False      # Status der automatischen LED
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "smart_doorbell.db"
@@ -32,11 +46,16 @@ VIDEO_DIR = BASE_DIR / "static" / "videos"
 # Erstelle den Video-Ordner, falls nicht vorhanden
 VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 
+# Komponenten initialisieren
+led = LED("D0")          # Pi-Top LED an D0
+button = Button("D2")    # Pi-Top Button an D2
+light_sensor = LightSensor("A0")  # Lichtsensor an A0
+
 def init_gpio():
     """Initialisiert die GPIO-Pins für Pi-Top"""
     try:
         GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)  # Warnungen deaktivieren
+        GPIO.setwarnings(False)
         
         # Button mit Pull-Up Widerstand (D2)
         GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
@@ -44,15 +63,18 @@ def init_gpio():
         # Ultraschallsensor (D7)
         GPIO.setup(ULTRASONIC_TRIG, GPIO.OUT)
         GPIO.setup(ULTRASONIC_ECHO, GPIO.IN)
-        
-        # Initialisiere TRIG auf LOW
         GPIO.output(ULTRASONIC_TRIG, False)
+        
+        # PIR Bewegungssensor (D4)
+        GPIO.setup(PIR_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+        
         time.sleep(0.5)
         
         print("GPIO für Pi-Top initialisiert")
         print(f"Button an GPIO{BUTTON_PIN} (D2)")
         print(f"Ultraschall TRIG an GPIO{ULTRASONIC_TRIG} (D7)")
         print(f"Ultraschall ECHO an GPIO{ULTRASONIC_ECHO} (D7)")
+        print(f"PIR Motion an GPIO{PIR_PIN} (D4)")
         
     except Exception as e:
         print(f"Fehler bei GPIO-Initialisierung: {e}")
@@ -61,35 +83,30 @@ def init_gpio():
 def get_distance():
     """Misst die Distanz mit dem Ultraschallsensor"""
     try:
-        # Trigger auf HIGH setzen
         GPIO.output(ULTRASONIC_TRIG, True)
-        time.sleep(0.00001)  # 10µs
+        time.sleep(0.00001)
         GPIO.output(ULTRASONIC_TRIG, False)
         
         pulse_start = time.time()
         pulse_end = time.time()
         
-        # Warte auf Echo START
         timeout_start = time.time()
         while GPIO.input(ULTRASONIC_ECHO) == 0:
             pulse_start = time.time()
             if time.time() - timeout_start > 0.1:
                 return None
         
-        # Warte auf Echo ENDE
         timeout_start = time.time()
         while GPIO.input(ULTRASONIC_ECHO) == 1:
             pulse_end = time.time()
             if time.time() - timeout_start > 0.1:
                 return None
         
-        # Distanz berechnen
         pulse_duration = pulse_end - pulse_start
-        distance = pulse_duration * 17150  # Schallgeschwindigkeit in cm/s geteilt durch 2
+        distance = pulse_duration * 17150
         distance = round(distance, 2)
         
-        # Plausibilitätsprüfung
-        if 2 < distance < 400:  # Gültiger Bereich 2-400 cm
+        if 2 < distance < 400:
             return distance
         else:
             return None
@@ -98,74 +115,122 @@ def get_distance():
         print(f"Fehler bei Distanzmessung: {e}")
         return None
 
-def record_video():
-    """Nimmt ein 5-Sekunden Video mit der USB-Webcam auf"""
+def record_video(event_type, duration):
+    """Nimmt ein Video mit der USB-Webcam auf"""
     global recording_active
     
     if recording_active:
-        print("[VIDEO] Bereits eine Aufnahme aktiv, überspringe...")
+        print(f"[VIDEO] Bereits eine Aufnahme aktiv, überspringe...")
         return None
     
     recording_active = True
     
     try:
-        # Generiere Dateinamen
         timestamp = datetime.now()
         date_str = timestamp.strftime("%Y%m%d")
         time_str = timestamp.strftime("%H%M%S")
-        filename = f"button_{date_str}{time_str}.mp4"
+        filename = f"{event_type}_{date_str}{time_str}.mp4"
         video_path = VIDEO_DIR / filename
         
-        print(f"[VIDEO] Starte Videoaufnahme: {filename}")
-        
-        # ffmpeg Befehl für Videoaufnahme
-        # -t 5: 5 Sekunden Aufnahme
-        # -s 640x480: Auflösung
-        # -r 15: 15 FPS
-        # -f v4l2: Video4Linux2 Treiber für USB-Kamera
-        # /dev/video0: Standard-Webcam Device
+        print(f"[VIDEO] Starte {duration}s Videoaufnahme: {filename}")
         
         cmd = [
             'ffmpeg',
-            '-f', 'v4l2',          # Video4Linux2 Input Format
-            '-framerate', '15',    # 15 FPS
-            '-video_size', '640x480',  # Auflösung
-            '-i', '/dev/video0',   # Webcam Device
-            '-t', '5',             # 5 Sekunden Aufnahme
-            '-vf', 'format=yuv420p',  # Farbformat
-            '-c:v', 'libx264',     # H.264 Codec
-            '-preset', 'ultrafast', # Schnelle Kodierung
-            '-y',                  # Überschreiben ohne Nachfrage
+            '-f', 'v4l2',
+            '-framerate', '15',
+            '-video_size', VIDEO_RESOLUTION,
+            '-i', '/dev/video0',
+            '-t', str(duration),
+            '-vf', 'format=yuv420p',
+            '-c:v', 'libx264',
+            '-preset', 'ultrafast',
+            '-y',
             str(video_path)
         ]
         
-        # Führe ffmpeg aus
         process = subprocess.run(
             cmd, 
             capture_output=True, 
             text=True,
-            timeout=10  # Timeout nach 10 Sekunden
+            timeout=duration + 5
         )
         
         if process.returncode == 0:
             print(f"[VIDEO] Aufnahme erfolgreich gespeichert: {filename}")
-            
-            # Event in Datenbank speichern
-            add_event("ring", filename)
-            
+            add_event(event_type, filename)
             return filename
         else:
             print(f"[VIDEO] Fehler bei Aufnahme: {process.stderr}")
             return None
             
     except subprocess.TimeoutExpired:
-        print("[VIDEO] Aufnahme-Timeout - Prozess wurde beendet")
+        print("[VIDEO] Aufnahme-Timeout")
         return None
     except Exception as e:
-        print(f"[VIDEO] Fehler bei Videoaufnahme: {e}")
+        print(f"[VIDEO] Fehler: {e}")
         return None
     finally:
         recording_active = False
+
+def button_pressed():
+    """Callback für Button-Druck"""
+    print(f"\n[🔔 BUTTON] Button an GPIO{BUTTON_PIN} wurde betätigt!")
+    
+    # Videoaufnahme starten (10 Sekunden)
+    video_thread = threading.Thread(
+        target=record_video, 
+        args=("ring", VIDEO_DURATION_BUTTON), 
+        daemon=True
+    )
+    video_thread.start()
+
+def check_motion():
+    """Prüft PIR-Sensor auf Bewegung und startet ggf. Video"""
+    global motion_times
+    
+    now = time.time()
+    
+    if GPIO.input(PIR_PIN):
+        motion_times.append(now)
+        print(f"\n[🏃 MOTION] Bewegung erkannt um {now:.0f}")
+        
+        # Alte Einträge entfernen (> MOTION_TIMEFRAME Sekunden)
+        motion_times = [t for t in motion_times if now - t <= MOTION_TIMEFRAME]
+        
+        # Prüfen ob Schwellwert erreicht
+        if len(motion_times) >= MOTION_THRESHOLD:
+            print(f"  ⚠️  {len(motion_times)} Bewegungen in {MOTION_TIMEFRAME}s! Starte Videoaufnahme")
+            
+            # Videoaufnahme starten (5 Sekunden)
+            video_thread = threading.Thread(
+                target=record_video,
+                args=("motion", VIDEO_DURATION_MOTION),
+                daemon=True
+            )
+            video_thread.start()
+            motion_times = []  # Reset nach Auslösung
+
+def check_light():
+    """Prüft Lichtsensor und steuert LED bei Dunkelheit"""
+    global led_on_dark
+    
+    try:
+        light_value = light_sensor.reading
+        
+        if light_value < DARKNESS_THRESHOLD and not led_on_dark:
+            # Es ist dunkel - LED einschalten
+            led.on()
+            led_on_dark = True
+            print(f"[💡 LICHT] Dunkel erkannt ({light_value:.0f}%) - LED EIN")
+            
+        elif light_value >= DARKNESS_THRESHOLD and led_on_dark:
+            # Es ist hell - LED ausschalten
+            led.off()
+            led_on_dark = False
+            print(f"[💡 LICHT] Hell erkannt ({light_value:.0f}%) - LED AUS")
+            
+    except Exception as e:
+        print(f"Fehler bei Lichtsensor: {e}")
 
 def button_thread():
     """Separater Thread für Button-Überwachung"""
@@ -177,22 +242,11 @@ def button_thread():
         try:
             current_state = GPIO.input(BUTTON_PIN)
             
-            # Button wurde gedrückt (von HIGH auf LOW)
             if last_button_state == True and current_state == False:
-                print(f"[BUTTON] Button an GPIO{BUTTON_PIN} wurde betätigt!")
-                
-                # Starte Videoaufnahme in einem separaten Thread
-                video_thread = threading.Thread(target=record_video, daemon=True)
-                video_thread.start()
-            
-            # Button wurde losgelassen (von LOW auf HIGH)
-            elif last_button_state == False and current_state == True:
-                print(f"[BUTTON] Button an GPIO{BUTTON_PIN} wurde losgelassen!")
+                button_pressed()
             
             last_button_state = current_state
-            
-            # Sehr kurze Pause für schnelle Reaktion
-            time.sleep(0.05)  # 50ms - sehr schnell
+            time.sleep(0.05)
             
         except Exception as e:
             print(f"Fehler im Button-Thread: {e}")
@@ -206,14 +260,43 @@ def ultrasonic_thread():
         try:
             distance = get_distance()
             if distance is not None:
-                print(f"[ULTRASCHALL] Gemessene Distanz: {distance} cm")
-            else:
-                print("[ULTRASCHALL] Keine gültige Messung")
-            
-            time.sleep(2)  # Alle 2 Sekunden messen
+                print(f"[📏 ULTRASCHALL] Distanz: {distance} cm")
+            time.sleep(2)
             
         except Exception as e:
             print(f"Fehler im Ultraschall-Thread: {e}")
+            time.sleep(1)
+
+def motion_thread():
+    """Thread für PIR-Bewegungssensor"""
+    print("Motion-Thread gestartet - Überwache Bewegungen")
+    
+    # PIR Sensor kalibrieren
+    print("PIR Sensor kalibriert sich... 10 Sekunden")
+    time.sleep(10)
+    print("PIR Sensor bereit!")
+    
+    while sensor_active:
+        try:
+            check_motion()
+            time.sleep(0.05)  # 50ms Abtastrate
+            
+        except Exception as e:
+            print(f"Fehler im Motion-Thread: {e}")
+            time.sleep(0.1)
+
+def light_thread():
+    """Thread für Lichtsensor und LED-Steuerung"""
+    print("Light-Thread gestartet - Überwache Helligkeit")
+    print(f"LED schaltet bei < {DARKNESS_THRESHOLD}% Helligkeit")
+    
+    while sensor_active:
+        try:
+            check_light()
+            time.sleep(LED_CHECK_INTERVAL)
+            
+        except Exception as e:
+            print(f"Fehler im Light-Thread: {e}")
             time.sleep(1)
 
 def init_db():
@@ -245,7 +328,7 @@ def add_event(event_type, video_filename=None):
     """, (timestamp, event_type, video_filename))
     conn.commit()
     conn.close()
-    print(f"[DATENBANK] Event hinzugefügt: {event_type} um {timestamp}, Video: {video_filename}")
+    print(f"[📀 DATENBANK] Event hinzugefügt: {event_type} um {timestamp}")
 
 def get_events(limit=None):
     """Holt Events aus der Datenbank"""
@@ -300,19 +383,15 @@ def get_event_stats():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    # Gesamtanzahl
     c.execute("SELECT COUNT(*) FROM events")
     total = c.fetchone()[0]
     
-    # Anzahl Ring-Events
     c.execute("SELECT COUNT(*) FROM events WHERE event_type = 'ring'")
     rings = c.fetchone()[0]
     
-    # Anzahl Motion-Events
     c.execute("SELECT COUNT(*) FROM events WHERE event_type = 'motion'")
     motions = c.fetchone()[0]
     
-    # Letztes Event
     c.execute("SELECT timestamp FROM events ORDER BY timestamp DESC LIMIT 1")
     last_event = c.fetchone()
     last_timestamp = last_event[0] if last_event else "Keine Events"
@@ -329,7 +408,7 @@ def get_event_stats():
 @app.route("/")
 def dashboard():
     """Haupt-Dashboard mit Event-Buttons"""
-    events = get_events(limit=20)  # Nur die 20 neuesten Events
+    events = get_events(limit=20)
     stats = get_event_stats()
     return render_template("dashboard.html", events=events, stats=stats)
 
@@ -339,7 +418,6 @@ def event_detail(event_id):
     event = get_event_by_id(event_id)
     if not event:
         return "Event nicht gefunden", 404
-    
     return render_template("event_detail.html", event=event)
 
 @app.route("/api/events/recent")
@@ -363,7 +441,6 @@ def api_add_event():
             video_file.save(video_path)
     
     add_event(event_type, video_filename)
-    
     return jsonify({"status": "success", "video_filename": video_filename})
 
 @app.route("/static/videos/<filename>")
@@ -371,7 +448,6 @@ def serve_video(filename):
     """Dient Videos aus dem Videos-Ordner"""
     if not filename.endswith('.mp4'):
         filename = filename + '.mp4'
-    
     return send_from_directory(VIDEO_DIR, filename)
 
 @app.route("/test_sensors")
@@ -379,93 +455,58 @@ def test_sensors():
     """Test-Seite für Sensoren"""
     distance = get_distance()
     button_state = GPIO.input(BUTTON_PIN)
+    motion_state = GPIO.input(PIR_PIN)
+    light_value = light_sensor.reading
     
     html = f"""
     <html>
     <head>
         <title>Sensor Test</title>
         <meta http-equiv="refresh" content="2">
+        <style>
+            body {{ font-family: Arial; padding: 20px; }}
+            .sensor {{ background: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 5px; }}
+            .green {{ color: green; }}
+            .red {{ color: red; }}
+        </style>
     </head>
     <body>
-        <h1>Sensor Test</h1>
-        <p><strong>Ultraschall Distanz:</strong> {distance or 'N/A'} cm</p>
-        <p><strong>Button Status:</strong> {'GEDRÜCKT' if button_state == GPIO.LOW else 'NICHT GEDRÜCKT'}</p>
-        <p><a href="/">Zurück zum Dashboard</a></p>
+        <h1>🔍 Sensor Test</h1>
+        <div class="sensor">
+            <h3>📏 Ultraschall</h3>
+            <p>Distanz: <strong>{distance or 'N/A'}</strong> cm</p>
+        </div>
+        <div class="sensor">
+            <h3>🟢 Button</h3>
+            <p>Status: <strong class="{'red' if button_state == GPIO.LOW else 'green'}">
+                {'GEDRÜCKT' if button_state == GPIO.LOW else 'NICHT GEDRÜCKT'}</strong></p>
+        </div>
+        <div class="sensor">
+            <h3>🏃 PIR Motion</h3>
+            <p>Status: <strong class="{'red' if motion_state else 'green'}">
+                {'BEWEGUNG' if motion_state else 'KEINE'}</strong></p>
+            <p>Bewegungen (letzte {MOTION_TIMEFRAME}s): <strong>{len(motion_times)}/{MOTION_THRESHOLD}</strong></p>
+        </div>
+        <div class="sensor">
+            <h3>💡 Lichtsensor</h3>
+            <p>Helligkeit: <strong>{light_value:.1f}%</strong></p>
+            <p>LED (Auto): <strong>{'EIN' if led_on_dark else 'AUS'}</strong></p>
+            <p>Schwelle: {DARKNESS_THRESHOLD}%</p>
+        </div>
+        <p><a href="/">⬅ Zurück zum Dashboard</a></p>
     </body>
     </html>
     """
     return html
-
-@app.route("/test_video")
-def test_video():
-    """Manuelle Testseite für Videoaufnahme"""
-    html = """
-    <html>
-    <head>
-        <title>Video Test</title>
-    </head>
-    <body>
-        <h1>Video Test</h1>
-        <form action="/record_video" method="get">
-            <button type="submit">Manuell 5s Video aufnehmen</button>
-        </form>
-        <p><a href="/">Zurück zum Dashboard</a></p>
-    </body>
-    </html>
-    """
-    return html
-
-@app.route("/record_video")
-def manual_record_video():
-    """Manuelle Videoaufnahme starten"""
-    result = record_video()
-    
-    if result:
-        return jsonify({
-            "status": "success", 
-            "message": f"Videoaufnahme gestartet: {result}",
-            "filename": result
-        })
-    else:
-        return jsonify({
-            "status": "error", 
-            "message": "Videoaufnahme fehlgeschlagen"
-        }), 500
-
-@app.route("/check_webcam")
-def check_webcam():
-    """Prüft ob die Webcam verfügbar ist"""
-    try:
-        # Prüfe ob /dev/video0 existiert
-        if os.path.exists('/dev/video0'):
-            # Versuche Video-Informationen zu bekommen
-            cmd = ['v4l2-ctl', '--device=/dev/video0', '--list-formats']
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            
-            return jsonify({
-                "status": "available",
-                "device": "/dev/video0",
-                "formats": result.stdout if result.returncode == 0 else "Unknown"
-            })
-        else:
-            return jsonify({
-                "status": "not_found",
-                "message": "Webcam /dev/video0 nicht gefunden"
-            }), 404
-            
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
 
 def cleanup():
     """Aufräumen bei Programmende"""
     global sensor_active
     sensor_active = False
-    time.sleep(2)  # Warte auf Threads
+    time.sleep(2)
     
     try:
+        led.off()
         GPIO.cleanup()
         print("GPIO aufgeräumt")
     except:
@@ -473,53 +514,49 @@ def cleanup():
 
 if __name__ == "__main__":
     try:
-        # Prüfe ob ffmpeg installiert ist
+        # Prüfe ffmpeg
         try:
             subprocess.run(['ffmpeg', '-version'], capture_output=True)
-            print("ffmpeg gefunden - Videoaufnahme möglich")
+            print("✓ ffmpeg gefunden")
         except FileNotFoundError:
-            print("WARNUNG: ffmpeg nicht installiert. Videoaufnahme nicht möglich.")
-            print("Installiere mit: sudo apt install ffmpeg")
+            print("⚠️ ffmpeg nicht installiert!")
+            print("   Installiere: sudo apt install ffmpeg")
         
         # Prüfe Webcam
-        print("\nPrüfe Webcam...")
         if os.path.exists('/dev/video0'):
-            print("Webcam /dev/video0 gefunden")
+            print("✓ Webcam gefunden")
         else:
-            print("WARNUNG: Webcam /dev/video0 nicht gefunden!")
-            print("Stelle sicher, dass die USB-Webcam angeschlossen ist.")
+            print("⚠️ Keine Webcam unter /dev/video0 gefunden!")
         
-        # Initialisiere Datenbank
+        # Initialisiere
         init_db()
-        
-        # Initialisiere GPIO
         init_gpio()
         
-        # Zwei separate Threads starten
-        button_thread_obj = threading.Thread(target=button_thread, daemon=True)
-        ultrasonic_thread_obj = threading.Thread(target=ultrasonic_thread, daemon=True)
+        # Threads starten
+        threads = [
+            threading.Thread(target=button_thread, daemon=True),
+            threading.Thread(target=ultrasonic_thread, daemon=True),
+            threading.Thread(target=motion_thread, daemon=True),
+            threading.Thread(target=light_thread, daemon=True)
+        ]
         
-        button_thread_obj.start()
-        ultrasonic_thread_obj.start()
+        for t in threads:
+            t.start()
         
-        print("\n" + "="*60)
-        print("SMART DOORBELL SYSTEM GESTARTET")
-        print("="*60)
-        print("Dashboard: http://localhost:5000/")
-        print("Sensor Test: http://localhost:5000/test_sensors")
-        print("Video Test: http://localhost:5000/test_video")
-        print("Webcam Check: http://localhost:5000/check_webcam")
-        print("\nÜberwachung aktiv:")
-        print(f"- Button an GPIO{BUTTON_PIN} (D2) - Startet 5s Videoaufnahme")
-        print(f"- Ultraschallsensor an GPIO{ULTRASONIC_TRIG}/{ULTRASONIC_ECHO} (D7)")
-        print("\nVideo-Einstellungen:")
-        print(f"- Dauer: {VIDEO_DURATION} Sekunden")
-        print(f"- Auflösung: {VIDEO_RESOLUTION}")
-        print(f"- FPS: {VIDEO_FPS}")
-        print("\nDrücke Strg+C zum Beenden")
-        print("="*60 + "\n")
+        print("\n" + "="*70)
+        print("🏠 SMART DOORBELL SYSTEM - ALL SENSORS ACTIVE")
+        print("="*70)
+        print("📊 Dashboard: http://localhost:5000/")
+        print("🔍 Sensor Test: http://localhost:5000/test_sensors")
+        print("\n🎯 AKTIONEN:")
+        print(f"  • Button (D2)       → 10s Video (ring event)")
+        print(f"  • PIR Motion (D4)   → {MOTION_THRESHOLD}x in {MOTION_TIMEFRAME}s → 5s Video (motion event)")
+        print(f"  • Lichtsensor (A0)  → LED automatisch bei < {DARKNESS_THRESHOLD}%")
+        print(f"  • Ultraschall (D7)  → Distanzmessung alle 2s")
+        print("\n" + "="*70)
+        print("Drücke Strg+C zum Beenden")
+        print("="*70 + "\n")
         
-        # Flask App starten
         app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
         
     except KeyboardInterrupt:
