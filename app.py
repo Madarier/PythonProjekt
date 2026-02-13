@@ -184,31 +184,72 @@ def button_pressed():
     )
     video_thread.start()
 
-def check_motion():
-    """Prüft PIR-Sensor auf Bewegung und startet ggf. Video"""
-    global motion_times
+def motion_thread():
+    """Thread für PIR-Bewegungssensor mit Cooldown und Entprellung"""
+    print("Motion-Thread gestartet - Überwache Bewegungen")
     
-    now = time.time()
+    # PIR Sensor kalibrieren
+    print("PIR Sensor kalibriert sich... 15 Sekunden")
+    for i in range(15, 0, -1):
+        print(f"  Kalibrierung: {i} Sekunden...", end='\r')
+        time.sleep(1)
+    print("  Kalibrierung: Fertig!            ")
+    print("PIR Sensor bereit!")
     
-    if GPIO.input(PIR_PIN):
-        motion_times.append(now)
-        print(f"\n[🏃 MOTION] Bewegung erkannt um {now:.0f}")
-        
-        # Alte Einträge entfernen (> MOTION_TIMEFRAME Sekunden)
-        motion_times = [t for t in motion_times if now - t <= MOTION_TIMEFRAME]
-        
-        # Prüfen ob Schwellwert erreicht
-        if len(motion_times) >= MOTION_THRESHOLD:
-            print(f"  ⚠️  {len(motion_times)} Bewegungen in {MOTION_TIMEFRAME}s! Starte Videoaufnahme")
+    # Variablen für Cooldown und Entprellung
+    cooldown_until = 0
+    last_motion_time = 0
+    motion_count = 0
+    
+    while sensor_active:
+        try:
+            now = time.time()
             
-            # Videoaufnahme starten (5 Sekunden)
-            video_thread = threading.Thread(
-                target=record_video,
-                args=("motion", VIDEO_DURATION_MOTION),
-                daemon=True
-            )
-            video_thread.start()
-            motion_times = []  # Reset nach Auslösung
+            # Cooldown: Nach erkannter Bewegung 2 Sekunden Pause
+            if now < cooldown_until:
+                time.sleep(0.05)
+                continue
+            
+            if GPIO.input(PIR_PIN):
+                # Bewegung erkannt
+                current_time = now
+                
+                # Entprellung: Mindestens 0.5 Sekunden seit letzter Bewegung
+                if current_time - last_motion_time > 0.5:
+                    motion_times.append(current_time)
+                    print(f"\n[🏃 MOTION] Bewegung erkannt um {current_time:.0f}")
+                    
+                    # Cooldown für 2 Sekunden setzen
+                    cooldown_until = current_time + 2
+                    last_motion_time = current_time
+                    motion_count += 1
+                    
+                    # Alte Einträge entfernen
+                    global motion_times
+                    motion_times = [t for t in motion_times if current_time - t <= MOTION_TIMEFRAME]
+                    
+                    print(f"  Bewegungen in letzten {MOTION_TIMEFRAME}s: {len(motion_times)}/{MOTION_THRESHOLD}")
+                    
+                    # Prüfen ob Schwellwert erreicht
+                    if len(motion_times) >= MOTION_THRESHOLD:
+                        print(f"  ⚠️  SCHWELLE ERREICHT! Starte {VIDEO_DURATION_MOTION}s Videoaufnahme")
+                        
+                        video_thread = threading.Thread(
+                            target=record_video,
+                            args=("motion", VIDEO_DURATION_MOTION),
+                            daemon=True
+                        )
+                        video_thread.start()
+                        motion_times = []  # Reset nach Auslösung
+                        motion_count = 0
+                        # Extra langer Cooldown nach Video
+                        cooldown_until = current_time + 5
+            
+            time.sleep(0.05)  # 50ms Abtastrate
+            
+        except Exception as e:
+            print(f"Fehler im Motion-Thread: {e}")
+            time.sleep(0.5)
 
 def check_light():
     """Prüft Lichtsensor und steuert LED bei Dunkelheit"""
