@@ -225,7 +225,6 @@ def motion_thread():
                     motion_count += 1
                     
                     # Alte Einträge entfernen
-                    global motion_times
                     motion_times = [t for t in motion_times if current_time - t <= MOTION_TIMEFRAME]
                     
                     print(f"  Bewegungen in letzten {MOTION_TIMEFRAME}s: {len(motion_times)}/{MOTION_THRESHOLD}")
