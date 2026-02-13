@@ -29,7 +29,7 @@ MOTION_THRESHOLD = 30    # 30 Bewegungen
 MOTION_TIMEFRAME = 3     # in 3 Sekunden
 
 # Lichtsensor-Einstellungen
-DARKNESS_THRESHOLD = 20  # Unter 20% = dunkel
+DARKNESS_THRESHOLD = 40  # Unter 40% = dunkel
 LED_CHECK_INTERVAL = 2   # Alle 2 Sekunden prüfen
 
 # Globale Variablen
