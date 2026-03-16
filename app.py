@@ -3,6 +3,10 @@ from werkzeug.utils import secure_filename
 import sqlite3
 from pathlib import Path
 from datetime import datetime
+
+# Deutsche Zeitzone (MEZ/MESZ manuell: UTC+1 Winter, UTC+2 Sommer)
+import zoneinfo
+LOCAL_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 import threading
 import time
 import subprocess
@@ -159,7 +163,7 @@ def record_video(event_type, duration):
     recording_led.on()
 
     try:
-        timestamp = datetime.now()
+        timestamp = datetime.now(LOCAL_TZ)
         date_str = timestamp.strftime("%Y%m%d")
         time_str = timestamp.strftime("%H%M%S")
         filename = f"{event_type}_{date_str}{time_str}.mp4"
@@ -354,7 +358,7 @@ def add_event(event_type, video_filename=None, temperature=None):
     conn = sqlite3.connect(DB_PATH)
     try:
         c = conn.cursor()
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
         if video_filename and not video_filename.endswith('.mp4'):
             video_filename = video_filename + '.mp4'
@@ -469,7 +473,7 @@ def api_add_event():
     if 'video' in request.files:
         video_file = request.files['video']
         if video_file.filename != '':
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(LOCAL_TZ).strftime("%Y%m%d_%H%M%S")
             safe_type = secure_filename(event_type) or "unknown"
             video_filename = f"{safe_type}_{timestamp}.mp4"
             video_path = VIDEO_DIR / video_filename
