@@ -9,7 +9,7 @@ import subprocess
 import os
 import math
 import RPi.GPIO as GPIO
-from pitop.pma import Button, Potentiometer, LED
+from pitop.pma import Button, LightSensor, LED
 
 app = Flask(__name__)
 
@@ -49,7 +49,7 @@ VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 
 # Komponenten initialisieren
 button = Button("D2")        # Pi-Top Button an D2
-temp_sensor = Potentiometer("A0")  # Grove Temperature Sensor an A0
+temp_sensor = LightSensor("A0")    # Analog-Reader für Grove Temperature Sensor an A0
 recording_led = LED("D0")    # LED an D0 - leuchtet während Aufnahme
 
 def init_gpio():
@@ -84,21 +84,9 @@ def init_gpio():
 def get_temperature():
     """Liest die Temperatur vom Grove Temperature Sensor v1.2"""
     try:
-        # pitop Potentiometer: .reading (0-100), .value (0-1), oder .position (0-1)
-        if hasattr(temp_sensor, 'reading'):
-            raw = temp_sensor.reading
-            analog_value = raw / 100.0
-        elif hasattr(temp_sensor, 'value'):
-            raw = temp_sensor.value
-            analog_value = float(raw)
-        elif hasattr(temp_sensor, 'position'):
-            raw = temp_sensor.position
-            analog_value = float(raw)
-        else:
-            print(f"[TEMP] Kein bekanntes Attribut. Verfügbar: {[a for a in dir(temp_sensor) if not a.startswith('_')]}")
-            return None
-
-        print(f"[TEMP] Rohwert: {raw}, Analog: {analog_value:.4f}")
+        raw = temp_sensor.reading  # LightSensor.reading gibt 0-100 zurück
+        analog_value = raw / 100.0
+        print(f"[TEMP] Rohwert: {raw:.1f}, Analog: {analog_value:.4f}")
 
         if analog_value <= 0 or analog_value >= 1:
             return None
