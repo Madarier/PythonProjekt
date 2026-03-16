@@ -84,7 +84,22 @@ def init_gpio():
 def get_temperature():
     """Liest die Temperatur vom Grove Temperature Sensor v1.2"""
     try:
-        analog_value = temp_sensor.position  # 0.0 bis 1.0
+        # pitop Potentiometer: .reading (0-100), .value (0-1), oder .position (0-1)
+        if hasattr(temp_sensor, 'reading'):
+            raw = temp_sensor.reading
+            analog_value = raw / 100.0
+        elif hasattr(temp_sensor, 'value'):
+            raw = temp_sensor.value
+            analog_value = float(raw)
+        elif hasattr(temp_sensor, 'position'):
+            raw = temp_sensor.position
+            analog_value = float(raw)
+        else:
+            print(f"[TEMP] Kein bekanntes Attribut. Verfügbar: {[a for a in dir(temp_sensor) if not a.startswith('_')]}")
+            return None
+
+        print(f"[TEMP] Rohwert: {raw}, Analog: {analog_value:.4f}")
+
         if analog_value <= 0 or analog_value >= 1:
             return None
         R = TEMP_R0 * (1.0 / analog_value - 1.0)
