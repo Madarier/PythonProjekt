@@ -81,24 +81,34 @@ def init_gpio():
         print(f"Fehler bei GPIO-Initialisierung: {e}")
         raise
 
-def get_temperature():
-    """Liest die Temperatur vom Grove Temperature Sensor v1.2"""
-    try:
-        raw = temp_sensor.reading  # LightSensor.reading gibt 0-1023 zurück (10-bit ADC)
-        analog_value = raw / 1023.0
-        print(f"[TEMP] Rohwert: {raw}, Analog: {analog_value:.4f}", flush=True)
+def _read_single_temperature():
+    """Einzelne Temperaturmessung vom Grove Temperature Sensor v1.2"""
+    raw = temp_sensor.reading  # 0-1023 (10-bit ADC)
+    analog_value = raw / 1023.0
+    if analog_value <= 0 or analog_value >= 1:
+        return None
+    R = TEMP_R0 * (1.0 / analog_value - 1.0)
+    return 1.0 / (math.log(R / TEMP_R0) / TEMP_B + 1.0 / 298.15) - 273.15
 
-        if analog_value <= 0 or analog_value >= 1:
-            print(f"[TEMP] Wert außerhalb Bereich, return None", flush=True)
+def get_temperature():
+    """Liest die Temperatur als Durchschnitt von 10 Messungen (~1s)"""
+    try:
+        readings = []
+        for _ in range(10):
+            t = _read_single_temperature()
+            if t is not None:
+                readings.append(t)
+            time.sleep(0.1)
+
+        if not readings:
+            print("[TEMP] Keine gültigen Messwerte", flush=True)
             return None
-        R = TEMP_R0 * (1.0 / analog_value - 1.0)
-        temperature = 1.0 / (math.log(R / TEMP_R0) / TEMP_B + 1.0 / 298.15) - 273.15
-        print(f"[TEMP] Temperatur: {temperature:.1f}°C", flush=True)
+
+        temperature = sum(readings) / len(readings)
+        print(f"[TEMP] Durchschnitt: {temperature:.1f}°C ({len(readings)} Messungen)", flush=True)
         return round(temperature, 1)
     except Exception as e:
         print(f"[TEMP] Fehler bei Temperaturmessung: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
         return None
 
 def get_distance():
