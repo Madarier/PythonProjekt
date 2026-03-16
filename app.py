@@ -91,14 +91,14 @@ def _read_single_temperature():
     return 1.0 / (math.log(R / TEMP_R0) / TEMP_B + 1.0 / 298.15) - 273.15
 
 def get_temperature():
-    """Liest die Temperatur als Durchschnitt von 10 Messungen (~1s)"""
+    """Liest die Temperatur als Durchschnitt von 5 Messungen (~0.25s)"""
     try:
         readings = []
-        for _ in range(10):
+        for _ in range(5):
             t = _read_single_temperature()
             if t is not None:
                 readings.append(t)
-            time.sleep(0.1)
+            time.sleep(0.05)
 
         if not readings:
             print("[TEMP] Keine gültigen Messwerte", flush=True)
