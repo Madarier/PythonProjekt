@@ -3,38 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SENTINEL // Surveillance Dashboard</title>
+    <title>NEXUS // Smart Dashboard</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
     <div class="dashboard-container">
-        <!-- Classification Banner -->
-        <div class="classification-banner">
-            // CLASSIFIED // AUTHORIZED PERSONNEL ONLY // SENTINEL PROGRAM //
-        </div>
-
         <!-- Header -->
         <div class="header">
             <div class="header-left">
                 <div class="header-logo">
-                    <i class="fas fa-shield-halved"></i>
+                    <i class="fas fa-bolt"></i>
                 </div>
                 <div>
-                    <h1>SENTINEL</h1>
-                    <div class="header-subtitle">PERIMETER SURVEILLANCE SYSTEM v2.1.0</div>
+                    <h1>NEXUS</h1>
+                    <div class="header-subtitle">SMART DOORBELL SYSTEM v2.0</div>
                 </div>
             </div>
             <div class="header-right">
                 <div class="system-status">
                     <span class="status-dot"></span>
-                    SYSTEM ACTIVE
+                    ONLINE
                 </div>
                 <div class="system-status">
-                    <i class="fas fa-satellite-dish" style="color: var(--primary);"></i>
-                    SENSORS ONLINE
+                    <i class="fas fa-wifi" style="color: var(--cyan); font-size: 0.7rem;"></i>
+                    SENSORS ACTIVE
                 </div>
             </div>
         </div>
@@ -43,10 +36,10 @@
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-icon">
-                    <i class="fas fa-database"></i>
+                    <i class="fas fa-layer-group"></i>
                 </div>
                 <span class="stat-number">{{ stats.total }}</span>
-                <span class="stat-label">Total Incidents</span>
+                <span class="stat-label">Total Events</span>
             </div>
 
             <div class="stat-card">
@@ -54,7 +47,7 @@
                     <i class="fas fa-bell" style="color: var(--red);"></i>
                 </div>
                 <span class="stat-number">{{ stats.rings }}</span>
-                <span class="stat-label">Ring Alerts</span>
+                <span class="stat-label">Ring Events</span>
             </div>
 
             <div class="stat-card">
@@ -67,7 +60,7 @@
 
             <div class="stat-card">
                 <div class="stat-icon">
-                    <i class="fas fa-clock" style="color: var(--cyan);"></i>
+                    <i class="fas fa-clock" style="color: var(--purple);"></i>
                 </div>
                 <span class="stat-number" style="font-size: 1.1rem;">{{ stats.last_event.split(' ')[0] if stats.last_event != 'Keine Events' else '---' }}</span>
                 <span class="stat-label">Last Event</span>
@@ -75,7 +68,7 @@
 
             <div class="stat-card">
                 <div class="stat-icon">
-                    <i class="fas fa-temperature-half" style="color: var(--primary);"></i>
+                    <i class="fas fa-temperature-half" style="color: var(--green);"></i>
                 </div>
                 <span class="stat-number">{{ '%.1f°'|format(temperature) if temperature is not none else 'N/A' }}</span>
                 <span class="stat-label">Temperature</span>
@@ -85,8 +78,8 @@
         <!-- Events Section -->
         <div class="events-section">
             <div class="section-title">
-                <i class="fas fa-list"></i>
-                Incident Log // Recent Activity
+                <i class="fas fa-timeline"></i>
+                Event Feed
             </div>
 
             {% if events %}
@@ -102,10 +95,10 @@
                     </div>
                     <div class="event-info">
                         <div class="event-type">
-                            {% if ev.event_type == 'ring' %}RING ALERT{% else %}MOTION DET.{% endif %}
+                            {% if ev.event_type == 'ring' %}RING{% else %}MOTION{% endif %}
                         </div>
                         <div class="event-time">
-                            {{ ev.timestamp.split(' ')[1][:5] }} // {{ ev.timestamp.split(' ')[0] }}
+                            {{ ev.timestamp.split(' ')[1][:5] }} &middot; {{ ev.timestamp.split(' ')[0] }}
                         </div>
                     </div>
                     <div class="event-id">#{{ ev.id }}</div>
@@ -115,15 +108,15 @@
             {% else %}
             <div class="empty-state">
                 <i class="fas fa-satellite-dish"></i>
-                <h3>No incidents recorded</h3>
-                <p>System is monitoring. Events will appear when activity is detected.</p>
+                <h3>NO EVENTS RECORDED</h3>
+                <p>System is monitoring. Events will appear here once activity is detected.</p>
             </div>
             {% endif %}
         </div>
 
         <!-- Footer -->
         <div class="footer">
-            SENTINEL SURVEILLANCE SYSTEM // LAST SYNC: {{ stats.last_event if stats.last_event != 'Keine Events' else 'AWAITING DATA' }}
+            NEXUS SMART DOORBELL &middot; LAST SYNC: {{ stats.last_event if stats.last_event != 'Keine Events' else 'AWAITING DATA' }}
         </div>
     </div>
 </body>

@@ -3,34 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SENTINEL // Incident #{{ event.id }}</title>
+    <title>NEXUS // Event #{{ event.id }}</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
     <div class="container">
-        <!-- Classification Banner -->
-        <div class="classification-banner">
-            // CLASSIFIED // INCIDENT REPORT #{{ event.id }} // SENTINEL PROGRAM //
-        </div>
-
         <!-- Header -->
         <div class="detail-header">
             <a href="{{ url_for('dashboard') }}" class="back-button">
-                <i class="fas fa-arrow-left"></i>
-                Back to Dashboard
+                <i class="fas fa-chevron-left"></i>
+                Dashboard
             </a>
 
             <div class="header-title">
-                <h1>Incident Report</h1>
-                <p>FILE #{{ event.id }} // {{ event.timestamp }}</p>
+                <h1>EVENT REPORT</h1>
+                <p>#{{ event.id }} &middot; {{ event.timestamp }}</p>
             </div>
 
             <div class="system-status">
                 <span class="status-dot"></span>
-                RECORD VERIFIED
+                VERIFIED
             </div>
         </div>
 
@@ -41,20 +34,20 @@
                 <div class="info-section">
                     <h3 class="section-title">
                         <i class="fas fa-fingerprint"></i>
-                        Incident Data
+                        Event Data
                     </h3>
                     <div class="info-grid">
                         <div class="info-item">
-                            <span class="info-label">Incident ID</span>
+                            <span class="info-label">Event ID</span>
                             <span class="info-value">#{{ event.id }}</span>
                         </div>
                         <div class="info-item">
-                            <span class="info-label">Classification</span>
+                            <span class="info-label">Type</span>
                             <span class="event-badge {{ event.event_type }}">
                                 {% if event.event_type == 'ring' %}
-                                    <i class="fas fa-bell"></i> RING ALERT
+                                    <i class="fas fa-bell"></i> RING
                                 {% else %}
-                                    <i class="fas fa-person-walking"></i> MOTION DET.
+                                    <i class="fas fa-person-walking"></i> MOTION
                                 {% endif %}
                             </span>
                         </div>
@@ -63,27 +56,27 @@
                             <span class="info-value">{{ event.timestamp.split(' ')[0] }}</span>
                         </div>
                         <div class="info-item">
-                            <span class="info-label">Timestamp</span>
+                            <span class="info-label">Time</span>
                             <span class="info-value">{{ event.timestamp.split(' ')[1] }}</span>
                         </div>
                         <div class="info-item">
                             <span class="info-label">Temperature</span>
                             <span class="info-value">
                                 {% if event.temperature is not none %}
-                                    <i class="fas fa-temperature-half" style="color: var(--primary);"></i>
+                                    <i class="fas fa-temperature-half" style="color: var(--green);"></i>
                                     {{ '%.1f'|format(event.temperature) }}°C
                                 {% else %}
-                                    <span style="color: var(--muted-foreground);">N/A</span>
+                                    <span style="color: var(--text-dim);">N/A</span>
                                 {% endif %}
                             </span>
                         </div>
                         <div class="info-item">
-                            <span class="info-label">Video Evidence</span>
+                            <span class="info-label">Video</span>
                             <span class="info-value">
                                 {% if event.video_file %}
-                                    <span style="color: var(--primary);"><i class="fas fa-check-circle"></i> CAPTURED</span>
+                                    <span style="color: var(--green);"><i class="fas fa-circle-check"></i> Captured</span>
                                 {% else %}
-                                    <span style="color: var(--muted-foreground);"><i class="fas fa-xmark"></i> NONE</span>
+                                    <span style="color: var(--text-dim);"><i class="fas fa-xmark"></i> None</span>
                                 {% endif %}
                             </span>
                         </div>
@@ -93,16 +86,16 @@
                 <div class="info-section">
                     <h3 class="section-title">
                         <i class="fas fa-microchip"></i>
-                        System Metadata
+                        System Info
                     </h3>
                     <div class="info-grid">
                         <div class="info-item">
                             <span class="info-label">Source</span>
-                            <span class="info-value">SENTINEL v2.1.0</span>
+                            <span class="info-value">NEXUS v2.0</span>
                         </div>
                         <div class="info-item">
-                            <span class="info-label">Record ID</span>
-                            <span class="info-value">SEN-{{ '%05d'|format(event.id) }}</span>
+                            <span class="info-label">Record</span>
+                            <span class="info-value">NX-{{ '%05d'|format(event.id) }}</span>
                         </div>
                     </div>
                 </div>
@@ -112,7 +105,7 @@
             <div class="video-container">
                 <h3 class="section-title">
                     <i class="fas fa-video"></i>
-                    Surveillance Footage
+                    Video Recording
                 </h3>
 
                 {% if event.video_file %}
@@ -126,7 +119,7 @@
                     <div class="video-actions">
                         <a href="{{ video_url }}" download class="action-button download">
                             <i class="fas fa-download"></i>
-                            Export Footage
+                            Download
                         </a>
                         <button class="action-button" onclick="document.querySelector('video').requestFullscreen()">
                             <i class="fas fa-expand"></i>
@@ -136,17 +129,17 @@
                 {% else %}
                     <div class="video-placeholder">
                         <i class="fas fa-video-slash"></i>
-                        <h3>No footage available</h3>
-                        <p>No video was captured for this incident.</p>
+                        <h3>NO FOOTAGE</h3>
+                        <p>No video was recorded for this event.</p>
                     </div>
                 {% endif %}
             </div>
 
-            <!-- Event Timeline -->
+            <!-- Timeline -->
             <div class="timeline">
                 <h3 class="section-title">
                     <i class="fas fa-timeline"></i>
-                    Event Timeline
+                    Timeline
                 </h3>
 
                 <div class="timeline-item">
@@ -154,12 +147,12 @@
                         <i class="fas fa-bolt"></i>
                     </div>
                     <div class="timeline-content">
-                        <div class="timeline-time">Trigger Detected</div>
+                        <div class="timeline-time">Event Detected</div>
                         <div class="timeline-desc">
                             {% if event.event_type == 'ring' %}
-                                Doorbell activation registered by sensor array
+                                Doorbell was activated
                             {% else %}
-                                Motion signature detected by PIR sensor
+                                Motion detected by PIR sensor
                             {% endif %}
                         </div>
                     </div>
@@ -171,8 +164,8 @@
                         <i class="fas fa-database"></i>
                     </div>
                     <div class="timeline-content">
-                        <div class="timeline-time">Record Created</div>
-                        <div class="timeline-desc">Incident logged to secure database</div>
+                        <div class="timeline-time">Saved to Database</div>
+                        <div class="timeline-desc">Event successfully recorded</div>
                     </div>
                     <div class="info-value">{{ event.timestamp.split(' ')[1][:5] }}</div>
                 </div>
@@ -183,8 +176,8 @@
                         <i class="fas fa-video"></i>
                     </div>
                     <div class="timeline-content">
-                        <div class="timeline-time">Footage Secured</div>
-                        <div class="timeline-desc">Video evidence captured and stored</div>
+                        <div class="timeline-time">Video Processed</div>
+                        <div class="timeline-desc">Recording saved to storage</div>
                     </div>
                     <div class="info-value">{{ event.timestamp.split(' ')[1][:5] }}</div>
                 </div>
@@ -194,7 +187,7 @@
 
         <!-- Footer -->
         <div class="detail-footer">
-            SENTINEL PROGRAM // INCIDENT #{{ event.id }} // RECORDED {{ event.timestamp }}
+            NEXUS &middot; EVENT #{{ event.id }} &middot; {{ event.timestamp }}
         </div>
     </div>
 
