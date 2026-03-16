@@ -3,25 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Event Details - Smart Doorbell</title>
+    <title>SENTINEL // Incident #{{ event.id }}</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
     <div class="container">
+        <!-- Classification Banner -->
+        <div class="classification-banner">
+            // CLASSIFIED // INCIDENT REPORT #{{ event.id }} // SENTINEL PROGRAM //
+        </div>
+
         <!-- Header -->
         <div class="detail-header">
             <a href="{{ url_for('dashboard') }}" class="back-button">
                 <i class="fas fa-arrow-left"></i>
-                Zurück zum Dashboard
+                Back to Dashboard
             </a>
-            
+
             <div class="header-title">
-                <h1>Event Details</h1>
-                <p>Detaillierte Informationen zum Event</p>
+                <h1>Incident Report</h1>
+                <p>FILE #{{ event.id }} // {{ event.timestamp }}</p>
             </div>
-            
-            <div style="width: 120px;"></div> <!-- Platzhalter für symmetrie -->
+
+            <div class="system-status">
+                <span class="status-dot"></span>
+                RECORD VERIFIED
+            </div>
         </div>
 
         <!-- Main Content -->
@@ -30,50 +40,50 @@
             <div class="info-card">
                 <div class="info-section">
                     <h3 class="section-title">
-                        <i class="fas fa-info-circle"></i>
-                        Event Information
+                        <i class="fas fa-fingerprint"></i>
+                        Incident Data
                     </h3>
                     <div class="info-grid">
                         <div class="info-item">
-                            <span class="info-label">Event ID:</span>
+                            <span class="info-label">Incident ID</span>
                             <span class="info-value">#{{ event.id }}</span>
                         </div>
                         <div class="info-item">
-                            <span class="info-label">Event Typ:</span>
+                            <span class="info-label">Classification</span>
                             <span class="event-badge {{ event.event_type }}">
                                 {% if event.event_type == 'ring' %}
-                                    <i class="fas fa-bell"></i> RING
+                                    <i class="fas fa-bell"></i> RING ALERT
                                 {% else %}
-                                    <i class="fas fa-running"></i> MOTION
+                                    <i class="fas fa-person-walking"></i> MOTION DET.
                                 {% endif %}
                             </span>
                         </div>
                         <div class="info-item">
-                            <span class="info-label">Datum:</span>
+                            <span class="info-label">Date</span>
                             <span class="info-value">{{ event.timestamp.split(' ')[0] }}</span>
                         </div>
                         <div class="info-item">
-                            <span class="info-label">Uhrzeit:</span>
-                            <span class="info-value">{{ event.timestamp.split(' ')[1] }} Uhr</span>
+                            <span class="info-label">Timestamp</span>
+                            <span class="info-value">{{ event.timestamp.split(' ')[1] }}</span>
                         </div>
                         <div class="info-item">
-                            <span class="info-label">Temperatur:</span>
+                            <span class="info-label">Temperature</span>
                             <span class="info-value">
                                 {% if event.temperature is not none %}
-                                    <i class="fas fa-thermometer-half" style="color: #ff9f43;"></i>
+                                    <i class="fas fa-temperature-half" style="color: var(--primary);"></i>
                                     {{ '%.1f'|format(event.temperature) }}°C
                                 {% else %}
-                                    N/A
+                                    <span style="color: var(--muted-foreground);">N/A</span>
                                 {% endif %}
                             </span>
                         </div>
                         <div class="info-item">
-                            <span class="info-label">Video vorhanden:</span>
+                            <span class="info-label">Video Evidence</span>
                             <span class="info-value">
                                 {% if event.video_file %}
-                                    <i class="fas fa-check" style="color: #4ecdc4;"></i> Ja
+                                    <span style="color: var(--primary);"><i class="fas fa-check-circle"></i> CAPTURED</span>
                                 {% else %}
-                                    <i class="fas fa-times" style="color: #ff6b6b;"></i> Nein
+                                    <span style="color: var(--muted-foreground);"><i class="fas fa-xmark"></i> NONE</span>
                                 {% endif %}
                             </span>
                         </div>
@@ -82,17 +92,17 @@
 
                 <div class="info-section">
                     <h3 class="section-title">
-                        <i class="fas fa-cogs"></i>
-                        System Information
+                        <i class="fas fa-microchip"></i>
+                        System Metadata
                     </h3>
                     <div class="info-grid">
                         <div class="info-item">
-                            <span class="info-label">Aufgezeichnet mit:</span>
-                            <span class="info-value">Smart Doorbell v1.0</span>
+                            <span class="info-label">Source</span>
+                            <span class="info-value">SENTINEL v2.1.0</span>
                         </div>
                         <div class="info-item">
-                            <span class="info-label">Datenbank ID:</span>
-                            <span class="info-value">{{ event.id }}</span>
+                            <span class="info-label">Record ID</span>
+                            <span class="info-value">SEN-{{ '%05d'|format(event.id) }}</span>
                         </div>
                     </div>
                 </div>
@@ -102,79 +112,79 @@
             <div class="video-container">
                 <h3 class="section-title">
                     <i class="fas fa-video"></i>
-                    Video Aufnahme
+                    Surveillance Footage
                 </h3>
-                
+
                 {% if event.video_file %}
                     {% set video_url = url_for('static', filename='videos/' + (event.video_file if event.video_file.endswith('.mp4') else event.video_file + '.mp4')) %}
-                    
+
                     <video class="video-player" controls>
                         <source src="{{ video_url }}" type="video/mp4">
-                        Ihr Browser unterstützt das Video-Tag nicht.
+                        Browser does not support video playback.
                     </video>
-                    
+
                     <div class="video-actions">
                         <a href="{{ video_url }}" download class="action-button download">
                             <i class="fas fa-download"></i>
-                            Video herunterladen
+                            Export Footage
                         </a>
                         <button class="action-button" onclick="document.querySelector('video').requestFullscreen()">
                             <i class="fas fa-expand"></i>
-                            Vollbild
+                            Fullscreen
                         </button>
                     </div>
                 {% else %}
                     <div class="video-placeholder">
                         <i class="fas fa-video-slash"></i>
-                        <h3>Kein Video verfügbar</h3>
-                        <p>Für dieses Event wurde kein Video aufgezeichnet.</p>
+                        <h3>No footage available</h3>
+                        <p>No video was captured for this incident.</p>
                     </div>
                 {% endif %}
             </div>
 
-            <!-- Event Timeline (Optional) -->
+            <!-- Event Timeline -->
             <div class="timeline">
                 <h3 class="section-title">
-                    <i class="fas fa-stream"></i>
+                    <i class="fas fa-timeline"></i>
                     Event Timeline
                 </h3>
-                
+
                 <div class="timeline-item">
                     <div class="timeline-icon">
                         <i class="fas fa-bolt"></i>
                     </div>
                     <div class="timeline-content">
-                        <div class="timeline-time">Event erkannt</div>
+                        <div class="timeline-time">Trigger Detected</div>
                         <div class="timeline-desc">
                             {% if event.event_type == 'ring' %}
-                                Türklingel wurde betätigt
+                                Doorbell activation registered by sensor array
                             {% else %}
-                                Bewegung wurde erkannt
+                                Motion signature detected by PIR sensor
                             {% endif %}
                         </div>
                     </div>
                     <div class="info-value">{{ event.timestamp.split(' ')[1][:5] }}</div>
                 </div>
-                
+
                 <div class="timeline-item">
                     <div class="timeline-icon">
                         <i class="fas fa-database"></i>
                     </div>
                     <div class="timeline-content">
-                        <div class="timeline-time">In Datenbank gespeichert</div>
-                        <div class="timeline-desc">Event wurde erfolgreich aufgezeichnet</div>
+                        <div class="timeline-time">Record Created</div>
+                        <div class="timeline-desc">Incident logged to secure database</div>
                     </div>
                     <div class="info-value">{{ event.timestamp.split(' ')[1][:5] }}</div>
                 </div>
-                
+
                 {% if event.video_file %}
                 <div class="timeline-item">
                     <div class="timeline-icon">
                         <i class="fas fa-video"></i>
                     </div>
                     <div class="timeline-content">
-                        <div class="timeline-time">Video verarbeitet</div>
-                        <div class="timeline-desc">Videoaufnahme wurde gespeichert</div>
+                        <div class="timeline-time">Footage Secured</div>
+                        <div class="timeline-desc">Video evidence captured and stored</div>
                     </div>
                     <div class="info-value">{{ event.timestamp.split(' ')[1][:5] }}</div>
                 </div>
@@ -184,19 +194,15 @@
 
         <!-- Footer -->
         <div class="detail-footer">
-            <p>Smart Doorbell System | Event aufgezeichnet am {{ event.timestamp }}</p>
+            SENTINEL PROGRAM // INCIDENT #{{ event.id }} // RECORDED {{ event.timestamp }}
         </div>
     </div>
 
     <script>
-        // Video Controls
         document.addEventListener('DOMContentLoaded', function() {
             const video = document.querySelector('video');
             if (video) {
-                // Autoplay nicht starten, aber vorladen
                 video.preload = 'metadata';
-                
-                // Tastatur-Shortcuts
                 document.addEventListener('keydown', function(e) {
                     if (document.activeElement.tagName === 'VIDEO') {
                         switch(e.key) {
@@ -214,13 +220,6 @@
                     }
                 });
             }
-            
-            // Zeitformatierung für die Timeline
-            const times = document.querySelectorAll('.timeline-item .info-value');
-            times.forEach(time => {
-                const original = time.textContent;
-                time.textContent = original + ' Uhr';
-            });
         });
     </script>
 </body>

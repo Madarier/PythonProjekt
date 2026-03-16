@@ -3,129 +3,128 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Doorbell - Dashboard</title>
+    <title>SENTINEL // Surveillance Dashboard</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
     <div class="dashboard-container">
+        <!-- Classification Banner -->
+        <div class="classification-banner">
+            // CLASSIFIED // AUTHORIZED PERSONNEL ONLY // SENTINEL PROGRAM //
+        </div>
+
         <!-- Header -->
         <div class="header">
-            <h1>
-                <i class="fas fa-door-closed"></i>
-                Smart Doorbell Dashboard
-            </h1>
-            <p>Überwachung und Verwaltung Ihrer intelligenten Türklingel</p>
+            <div class="header-left">
+                <div class="header-logo">
+                    <i class="fas fa-shield-halved"></i>
+                </div>
+                <div>
+                    <h1>SENTINEL</h1>
+                    <div class="header-subtitle">PERIMETER SURVEILLANCE SYSTEM v2.1.0</div>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="system-status">
+                    <span class="status-dot"></span>
+                    SYSTEM ACTIVE
+                </div>
+                <div class="system-status">
+                    <i class="fas fa-satellite-dish" style="color: var(--primary);"></i>
+                    SENSORS ONLINE
+                </div>
+            </div>
         </div>
 
         <!-- Stats Cards -->
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-icon">
-                    <i class="fas fa-history"></i>
+                    <i class="fas fa-database"></i>
                 </div>
                 <span class="stat-number">{{ stats.total }}</span>
-                <span class="stat-label">Gesamt Events</span>
+                <span class="stat-label">Total Incidents</span>
             </div>
 
             <div class="stat-card">
                 <div class="stat-icon">
-                    <i class="fas fa-bell"></i>
+                    <i class="fas fa-bell" style="color: var(--red);"></i>
                 </div>
                 <span class="stat-number">{{ stats.rings }}</span>
-                <span class="stat-label">Klingel Events</span>
+                <span class="stat-label">Ring Alerts</span>
             </div>
 
             <div class="stat-card">
                 <div class="stat-icon">
-                    <i class="fas fa-running"></i>
+                    <i class="fas fa-person-walking" style="color: var(--amber);"></i>
                 </div>
                 <span class="stat-number">{{ stats.motions }}</span>
-                <span class="stat-label">Bewegung Events</span>
+                <span class="stat-label">Motion Events</span>
             </div>
 
             <div class="stat-card">
                 <div class="stat-icon">
-                    <i class="fas fa-clock"></i>
+                    <i class="fas fa-clock" style="color: var(--cyan);"></i>
                 </div>
-                <span class="stat-number">{{ stats.last_event.split(' ')[0] if stats.last_event != 'Keine Events' else 'Keine' }}</span>
-                <span class="stat-label">Letztes Event</span>
+                <span class="stat-number" style="font-size: 1.1rem;">{{ stats.last_event.split(' ')[0] if stats.last_event != 'Keine Events' else '---' }}</span>
+                <span class="stat-label">Last Event</span>
             </div>
 
             <div class="stat-card">
                 <div class="stat-icon">
-                    <i class="fas fa-thermometer-half"></i>
+                    <i class="fas fa-temperature-half" style="color: var(--primary);"></i>
                 </div>
-                <span class="stat-number">{{ '%.1f°C'|format(temperature) if temperature is not none else 'N/A' }}</span>
-                <span class="stat-label">Aktuelle Temperatur</span>
+                <span class="stat-number">{{ '%.1f°'|format(temperature) if temperature is not none else 'N/A' }}</span>
+                <span class="stat-label">Temperature</span>
             </div>
         </div>
 
         <!-- Events Section -->
         <div class="events-section">
-            <h2 class="section-title">
+            <div class="section-title">
                 <i class="fas fa-list"></i>
-                Letzte Events
-            </h2>
+                Incident Log // Recent Activity
+            </div>
 
             {% if events %}
             <div class="events-grid">
                 {% for ev in events %}
-                <a href="{{ url_for('event_detail', event_id=ev.id) }}" 
-                   class="event-button {{ ev.event_type }}">
-                    <div class="event-id">#{{ ev.id }}</div>
+                <a href="{{ url_for('event_detail', event_id=ev.id) }}" class="event-button {{ ev.event_type }}">
                     <div class="event-icon">
                         {% if ev.event_type == 'ring' %}
                             <i class="fas fa-bell"></i>
                         {% else %}
-                            <i class="fas fa-running"></i>
+                            <i class="fas fa-person-walking"></i>
                         {% endif %}
                     </div>
-                    <div class="event-type">
-                        {% if ev.event_type == 'ring' %}
-                            RING
-                        {% else %}
-                            MOTION
-                        {% endif %}
+                    <div class="event-info">
+                        <div class="event-type">
+                            {% if ev.event_type == 'ring' %}RING ALERT{% else %}MOTION DET.{% endif %}
+                        </div>
+                        <div class="event-time">
+                            {{ ev.timestamp.split(' ')[1][:5] }} // {{ ev.timestamp.split(' ')[0] }}
+                        </div>
                     </div>
-                    <div class="event-time">
-                        {{ ev.timestamp.split(' ')[1][:5] }} Uhr
-                    </div>
-                    <div class="event-date">
-                        {{ ev.timestamp.split(' ')[0] }}
-                    </div>
+                    <div class="event-id">#{{ ev.id }}</div>
                 </a>
                 {% endfor %}
             </div>
             {% else %}
             <div class="empty-state">
-                <i class="fas fa-door-open"></i>
-                <h3>Noch keine Events aufgezeichnet</h3>
-                <p>Sobald jemand klingelt oder Bewegung erkannt wird, erscheinen hier die Events.</p>
+                <i class="fas fa-satellite-dish"></i>
+                <h3>No incidents recorded</h3>
+                <p>System is monitoring. Events will appear when activity is detected.</p>
             </div>
             {% endif %}
         </div>
 
         <!-- Footer -->
         <div class="footer">
-            <p>Smart Doorbell System | Letzte Aktualisierung: {{ stats.last_event if stats.last_event != 'Keine Events' else 'Nie' }}</p>
+            SENTINEL SURVEILLANCE SYSTEM // LAST SYNC: {{ stats.last_event if stats.last_event != 'Keine Events' else 'AWAITING DATA' }}
         </div>
     </div>
-
-    <script>
-        // Event-Button Animation
-        document.addEventListener('DOMContentLoaded', function() {
-            const buttons = document.querySelectorAll('.event-button');
-            buttons.forEach(button => {
-                button.addEventListener('mouseenter', function() {
-                    this.style.transform = 'translateY(-5px)';
-                });
-                
-                button.addEventListener('mouseleave', function() {
-                    this.style.transform = 'translateY(0)';
-                });
-            });
-        });
-    </script>
 </body>
 </html>
