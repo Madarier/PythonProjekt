@@ -84,14 +84,12 @@ def init_gpio():
 def get_temperature():
     """Liest die Temperatur vom Grove Temperature Sensor v1.2"""
     try:
-        print(f"[TEMP] Lese Sensor... type={type(temp_sensor)}", flush=True)
-        raw = temp_sensor.reading  # LightSensor.reading gibt 0-100 zurück
-        print(f"[TEMP] Rohwert: {raw} (type={type(raw)})", flush=True)
-        analog_value = raw / 100.0
-        print(f"[TEMP] Analog: {analog_value:.4f}", flush=True)
+        raw = temp_sensor.reading  # LightSensor.reading gibt 0-1023 zurück (10-bit ADC)
+        analog_value = raw / 1023.0
+        print(f"[TEMP] Rohwert: {raw}, Analog: {analog_value:.4f}", flush=True)
 
         if analog_value <= 0 or analog_value >= 1:
-            print(f"[TEMP] Wert außerhalb Bereich (0 < {analog_value} < 1), return None", flush=True)
+            print(f"[TEMP] Wert außerhalb Bereich, return None", flush=True)
             return None
         R = TEMP_R0 * (1.0 / analog_value - 1.0)
         temperature = 1.0 / (math.log(R / TEMP_R0) / TEMP_B + 1.0 / 298.15) - 273.15
