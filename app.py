@@ -84,17 +84,23 @@ def init_gpio():
 def get_temperature():
     """Liest die Temperatur vom Grove Temperature Sensor v1.2"""
     try:
+        print(f"[TEMP] Lese Sensor... type={type(temp_sensor)}", flush=True)
         raw = temp_sensor.reading  # LightSensor.reading gibt 0-100 zurück
+        print(f"[TEMP] Rohwert: {raw} (type={type(raw)})", flush=True)
         analog_value = raw / 100.0
-        print(f"[TEMP] Rohwert: {raw:.1f}, Analog: {analog_value:.4f}")
+        print(f"[TEMP] Analog: {analog_value:.4f}", flush=True)
 
         if analog_value <= 0 or analog_value >= 1:
+            print(f"[TEMP] Wert außerhalb Bereich (0 < {analog_value} < 1), return None", flush=True)
             return None
         R = TEMP_R0 * (1.0 / analog_value - 1.0)
         temperature = 1.0 / (math.log(R / TEMP_R0) / TEMP_B + 1.0 / 298.15) - 273.15
+        print(f"[TEMP] Temperatur: {temperature:.1f}°C", flush=True)
         return round(temperature, 1)
     except Exception as e:
-        print(f"Fehler bei Temperaturmessung: {e}")
+        print(f"[TEMP] Fehler bei Temperaturmessung: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
         return None
 
 def get_distance():
@@ -517,6 +523,35 @@ def test_sensors():
     """
     return html
 
+@app.route("/debug_temp")
+def debug_temp():
+    """Debug-Route für Temperatursensor - zeigt Rohdaten im Browser"""
+    import sys
+    info = {
+        "sensor_type": str(type(temp_sensor)),
+        "sensor_class": temp_sensor.__class__.__name__,
+        "sensor_dir": [attr for attr in dir(temp_sensor) if not attr.startswith('_')],
+    }
+
+    # Versuche verschiedene Attribute zu lesen
+    for attr in ['reading', 'value', 'position', 'raw_value', 'voltage']:
+        try:
+            val = getattr(temp_sensor, attr, 'NICHT VORHANDEN')
+            info[f"attr_{attr}"] = str(val)
+        except Exception as e:
+            info[f"attr_{attr}"] = f"FEHLER: {e}"
+
+    # Versuche get_temperature()
+    try:
+        temp = get_temperature()
+        info["get_temperature_result"] = str(temp)
+    except Exception as e:
+        info["get_temperature_result"] = f"FEHLER: {e}"
+
+    info["python_version"] = sys.version
+
+    return jsonify(info)
+
 def cleanup():
     """Aufräumen bei Programmende"""
     global sensor_active
@@ -565,6 +600,7 @@ if __name__ == "__main__":
         print("="*70)
         print("📊 Dashboard: http://localhost:5000/")
         print("🔍 Sensor Test: http://localhost:5000/test_sensors")
+        print("🌡️ Temp Debug:  http://localhost:5000/debug_temp")
         print("\n🎯 AKTIONEN:")
         print(f"  • Button (D2)       → 10s Video (ring event)")
         print(f"  • PIR Motion (D4)   → {MOTION_THRESHOLD}x in {MOTION_TIMEFRAME}s → 5s Video (motion event)")
