@@ -57,6 +57,17 @@
                             <span class="info-value">{{ event.timestamp.split(' ')[1] }} Uhr</span>
                         </div>
                         <div class="info-item">
+                            <span class="info-label">Temperatur:</span>
+                            <span class="info-value">
+                                {% if event.temperature is not none %}
+                                    <i class="fas fa-thermometer-half" style="color: #ff9f43;"></i>
+                                    {{ '%.1f'|format(event.temperature) }}°C
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </span>
+                        </div>
+                        <div class="info-item">
                             <span class="info-label">Video vorhanden:</span>
                             <span class="info-value">
                                 {% if event.video_file %}

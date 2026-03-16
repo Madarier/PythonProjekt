@@ -51,6 +51,14 @@
                 <span class="stat-number">{{ stats.last_event.split(' ')[0] if stats.last_event != 'Keine Events' else 'Keine' }}</span>
                 <span class="stat-label">Letztes Event</span>
             </div>
+
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-thermometer-half"></i>
+                </div>
+                <span class="stat-number">{{ '%.1f°C'|format(temperature) if temperature is not none else 'N/A' }}</span>
+                <span class="stat-label">Aktuelle Temperatur</span>
+            </div>
         </div>
 
         <!-- Events Section -->

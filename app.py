@@ -7,8 +7,9 @@ import threading
 import time
 import subprocess
 import os
+import math
 import RPi.GPIO as GPIO
-from pitop.pma import LED, Button, LightSensor
+from pitop.pma import Button, Potentiometer, LED
 
 app = Flask(__name__)
 
@@ -17,8 +18,6 @@ BUTTON_PIN = 26        # D2 = GPIO26 (BCM)
 ULTRASONIC_TRIG = 14   # D7 = GPIO14 (BCM) für TRIG
 ULTRASONIC_ECHO = 15   # D7 = GPIO15 (BCM) für ECHO
 PIR_PIN = 7            # D4 = GPIO7 (BCM) für PIR Bewegungssensor
-LED_PIN = 17           # D0 = GPIO17 (BCM) für LED
-
 # Video-Aufnahme-Einstellungen
 VIDEO_DURATION_BUTTON = 10  # 10 Sekunden Aufnahme bei Button
 VIDEO_DURATION_MOTION = 5   # 5 Sekunden Aufnahme bei Motion
@@ -28,17 +27,17 @@ VIDEO_RESOLUTION = "640x480"
 # Motion-Einstellungen
 MOTION_THRESHOLD = 3     # 3 Bewegungen
 MOTION_TIMEFRAME = 30    # in 30 Sekunden
+MOTION_COOLDOWN = 5      # 5 Sekunden Pause nach jeder Erkennung
 
-# Lichtsensor-Einstellungen
-DARKNESS_THRESHOLD = 40  # Unter 40% = dunkel
-LED_CHECK_INTERVAL = 2   # Alle 2 Sekunden prüfen
+# Temperatur-Einstellungen (Grove Temperature Sensor v1.2)
+TEMP_B = 4275       # B-Wert des NTC Thermistors
+TEMP_R0 = 100000    # Widerstand bei 25°C (100K Ohm)
 
 # Globale Variablen
 sensor_active = True
 last_button_state = True  # True = nicht gedrückt (wegen Pull-Up)
 recording_active = False  # Verhindert mehrere gleichzeitige Aufnahmen
 motion_times = []        # Zeitstempel für Bewegungen
-led_on_dark = False      # Status der automatischen LED
 state_lock = threading.Lock()  # Lock für Thread-sichere Zugriffe
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -49,9 +48,9 @@ VIDEO_DIR = BASE_DIR / "static" / "videos"
 VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 
 # Komponenten initialisieren
-led = LED("D0")          # Pi-Top LED an D0
-button = Button("D2")    # Pi-Top Button an D2
-light_sensor = LightSensor("A0")  # Lichtsensor an A0
+button = Button("D2")        # Pi-Top Button an D2
+temp_sensor = Potentiometer("A0")  # Grove Temperature Sensor an A0
+recording_led = LED("D0")    # LED an D0 - leuchtet während Aufnahme
 
 def init_gpio():
     """Initialisiert die GPIO-Pins für Pi-Top"""
@@ -81,6 +80,19 @@ def init_gpio():
     except Exception as e:
         print(f"Fehler bei GPIO-Initialisierung: {e}")
         raise
+
+def get_temperature():
+    """Liest die Temperatur vom Grove Temperature Sensor v1.2"""
+    try:
+        analog_value = temp_sensor.position  # 0.0 bis 1.0
+        if analog_value <= 0 or analog_value >= 1:
+            return None
+        R = TEMP_R0 * (1.0 / analog_value - 1.0)
+        temperature = 1.0 / (math.log(R / TEMP_R0) / TEMP_B + 1.0 / 298.15) - 273.15
+        return round(temperature, 1)
+    except Exception as e:
+        print(f"Fehler bei Temperaturmessung: {e}")
+        return None
 
 def get_distance():
     """Misst die Distanz mit dem Ultraschallsensor"""
@@ -126,7 +138,9 @@ def record_video(event_type, duration):
             print(f"[VIDEO] Bereits eine Aufnahme aktiv, überspringe...")
             return None
         recording_active = True
-    
+
+    recording_led.on()
+
     try:
         timestamp = datetime.now()
         date_str = timestamp.strftime("%Y%m%d")
@@ -159,7 +173,8 @@ def record_video(event_type, duration):
         
         if process.returncode == 0:
             print(f"[VIDEO] Aufnahme erfolgreich gespeichert: {filename}")
-            add_event(event_type, filename)
+            temperature = get_temperature()
+            add_event(event_type, filename, temperature)
             return filename
         else:
             print(f"[VIDEO] Fehler bei Aufnahme: {process.stderr}")
@@ -172,6 +187,7 @@ def record_video(event_type, duration):
         print(f"[VIDEO] Fehler: {e}")
         return None
     finally:
+        recording_led.off()
         recording_active = False
 
 def button_pressed():
@@ -227,8 +243,8 @@ def motion_thread():
 
                 print(f"\n[🏃 MOTION] Bewegung #{motion_count_total} um {now:.0f}")
 
-                # Cooldown für 2 Sekunden setzen - verhindert Dauerfeuer
-                cooldown_until = now + 2
+                # Cooldown setzen - verhindert Dauerfeuer
+                cooldown_until = now + MOTION_COOLDOWN
 
                 print(f"  Bewegungen in letzten {MOTION_TIMEFRAME}s: {current_count}/{MOTION_THRESHOLD}")
 
@@ -258,26 +274,6 @@ def motion_thread():
         except Exception as e:
             print(f"Fehler im Motion-Thread: {e}")
             time.sleep(0.5)
-
-def check_light():
-    """Prüft Lichtsensor und steuert LED bei Dunkelheit"""
-    global led_on_dark
-
-    try:
-        light_value = light_sensor.reading
-
-        with state_lock:
-            if light_value < DARKNESS_THRESHOLD and not led_on_dark:
-                led.on()
-                led_on_dark = True
-                print(f"[💡 LICHT] Dunkel erkannt ({light_value:.0f}%) - LED EIN")
-            elif light_value >= DARKNESS_THRESHOLD and led_on_dark:
-                led.off()
-                led_on_dark = False
-                print(f"[💡 LICHT] Hell erkannt ({light_value:.0f}%) - LED AUS")
-
-    except Exception as e:
-        print(f"Fehler bei Lichtsensor: {e}")
 
 def button_thread():
     """Separater Thread für Button-Überwachung"""
@@ -314,20 +310,6 @@ def ultrasonic_thread():
             print(f"Fehler im Ultraschall-Thread: {e}")
             time.sleep(1)
 
-def light_thread():
-    """Thread für Lichtsensor und LED-Steuerung"""
-    print("Light-Thread gestartet - Überwache Helligkeit")
-    print(f"LED schaltet bei < {DARKNESS_THRESHOLD}% Helligkeit")
-    
-    while sensor_active:
-        try:
-            check_light()
-            time.sleep(LED_CHECK_INTERVAL)
-            
-        except Exception as e:
-            print(f"Fehler im Light-Thread: {e}")
-            time.sleep(1)
-
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     try:
@@ -337,14 +319,20 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
                 event_type TEXT NOT NULL,
-                video_file TEXT
+                video_file TEXT,
+                temperature REAL
             )
         """)
+        # Migration: Spalte hinzufügen falls sie in alter DB fehlt
+        try:
+            c.execute("ALTER TABLE events ADD COLUMN temperature REAL")
+        except sqlite3.OperationalError:
+            pass  # Spalte existiert bereits
         conn.commit()
     finally:
         conn.close()
 
-def add_event(event_type, video_filename=None):
+def add_event(event_type, video_filename=None, temperature=None):
     """Fügt einen neuen Event-Eintrag in die Datenbank hinzu"""
     conn = sqlite3.connect(DB_PATH)
     try:
@@ -355,11 +343,11 @@ def add_event(event_type, video_filename=None):
             video_filename = video_filename + '.mp4'
 
         c.execute("""
-            INSERT INTO events (timestamp, event_type, video_file)
-            VALUES (?, ?, ?)
-        """, (timestamp, event_type, video_filename))
+            INSERT INTO events (timestamp, event_type, video_file, temperature)
+            VALUES (?, ?, ?, ?)
+        """, (timestamp, event_type, video_filename, temperature))
         conn.commit()
-        print(f"[📀 DATENBANK] Event hinzugefügt: {event_type} um {timestamp}")
+        print(f"[📀 DATENBANK] Event hinzugefügt: {event_type} um {timestamp} ({temperature}°C)")
     finally:
         conn.close()
 
@@ -372,14 +360,14 @@ def get_events(limit=None):
 
         if limit:
             c.execute("""
-                SELECT id, timestamp, event_type, video_file
+                SELECT id, timestamp, event_type, video_file, temperature
                 FROM events
                 ORDER BY timestamp DESC
                 LIMIT ?
             """, (limit,))
         else:
             c.execute("""
-                SELECT id, timestamp, event_type, video_file
+                SELECT id, timestamp, event_type, video_file, temperature
                 FROM events
                 ORDER BY timestamp DESC
             """)
@@ -395,7 +383,7 @@ def get_event_by_id(event_id):
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
         c.execute("""
-            SELECT id, timestamp, event_type, video_file
+            SELECT id, timestamp, event_type, video_file, temperature
             FROM events
             WHERE id = ?
         """, (event_id,))
@@ -438,7 +426,8 @@ def dashboard():
     """Haupt-Dashboard mit Event-Buttons"""
     events = get_events(limit=20)
     stats = get_event_stats()
-    return render_template("dashboard.html", events=events, stats=stats)
+    temperature = get_temperature()
+    return render_template("dashboard.html", events=events, stats=stats, temperature=temperature)
 
 @app.route("/event/<int:event_id>")
 def event_detail(event_id):
@@ -469,8 +458,9 @@ def api_add_event():
             video_path = VIDEO_DIR / video_filename
             video_file.save(video_path)
     
-    add_event(event_type, video_filename)
-    return jsonify({"status": "success", "video_filename": video_filename})
+    temperature = get_temperature()
+    add_event(event_type, video_filename, temperature)
+    return jsonify({"status": "success", "video_filename": video_filename, "temperature": temperature})
 
 @app.route("/test_sensors")
 def test_sensors():
@@ -478,11 +468,12 @@ def test_sensors():
     distance = get_distance()
     button_state = GPIO.input(BUTTON_PIN)
     motion_state = GPIO.input(PIR_PIN)
-    light_value = light_sensor.reading
+    temperature = get_temperature()
 
     with state_lock:
         motion_count = len(motion_times)
-        led_status = led_on_dark
+
+    temp_display = f"{temperature}°C" if temperature is not None else "N/A"
 
     html = f"""
     <html>
@@ -499,6 +490,10 @@ def test_sensors():
     <body>
         <h1>🔍 Sensor Test</h1>
         <div class="sensor">
+            <h3>🌡️ Temperatur</h3>
+            <p>Aktuell: <strong>{temp_display}</strong></p>
+        </div>
+        <div class="sensor">
             <h3>📏 Ultraschall</h3>
             <p>Distanz: <strong>{distance or 'N/A'}</strong> cm</p>
         </div>
@@ -513,12 +508,6 @@ def test_sensors():
                 {'BEWEGUNG' if motion_state else 'KEINE'}</strong></p>
             <p>Bewegungen (letzte {MOTION_TIMEFRAME}s): <strong>{motion_count}/{MOTION_THRESHOLD}</strong></p>
         </div>
-        <div class="sensor">
-            <h3>💡 Lichtsensor</h3>
-            <p>Helligkeit: <strong>{light_value:.1f}%</strong></p>
-            <p>LED (Auto): <strong>{'EIN' if led_status else 'AUS'}</strong></p>
-            <p>Schwelle: {DARKNESS_THRESHOLD}%</p>
-        </div>
         <p><a href="/">⬅ Zurück zum Dashboard</a></p>
     </body>
     </html>
@@ -532,7 +521,7 @@ def cleanup():
     time.sleep(2)
     
     try:
-        led.off()
+        recording_led.off()
         GPIO.cleanup()
         print("GPIO aufgeräumt")
     except Exception:
@@ -563,7 +552,6 @@ if __name__ == "__main__":
             threading.Thread(target=button_thread, daemon=True),
             threading.Thread(target=ultrasonic_thread, daemon=True),
             threading.Thread(target=motion_thread, daemon=True),
-            threading.Thread(target=light_thread, daemon=True)
         ]
         
         for t in threads:
@@ -577,8 +565,8 @@ if __name__ == "__main__":
         print("\n🎯 AKTIONEN:")
         print(f"  • Button (D2)       → 10s Video (ring event)")
         print(f"  • PIR Motion (D4)   → {MOTION_THRESHOLD}x in {MOTION_TIMEFRAME}s → 5s Video (motion event)")
-        print(f"  • Lichtsensor (A0)  → LED automatisch bei < {DARKNESS_THRESHOLD}%")
         print(f"  • Ultraschall (D7)  → Distanzmessung alle 2s")
+        print(f"  • Temperatur (A0)   → Grove Temperature Sensor v1.2")
         print("\n" + "="*70)
         print("Drücke Strg+C zum Beenden")
         print("="*70 + "\n")
