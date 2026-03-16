@@ -1,4 +1,5 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify
+from werkzeug.utils import secure_filename
 import sqlite3
 from pathlib import Path
 from datetime import datetime
@@ -25,8 +26,8 @@ VIDEO_FPS = 30
 VIDEO_RESOLUTION = "640x480"
 
 # Motion-Einstellungen
-MOTION_THRESHOLD = 30    # 30 Bewegungen
-MOTION_TIMEFRAME = 3     # in 3 Sekunden
+MOTION_THRESHOLD = 3     # 3 Bewegungen
+MOTION_TIMEFRAME = 30    # in 30 Sekunden
 
 # Lichtsensor-Einstellungen
 DARKNESS_THRESHOLD = 40  # Unter 40% = dunkel
@@ -38,6 +39,7 @@ last_button_state = True  # True = nicht gedrückt (wegen Pull-Up)
 recording_active = False  # Verhindert mehrere gleichzeitige Aufnahmen
 motion_times = []        # Zeitstempel für Bewegungen
 led_on_dark = False      # Status der automatischen LED
+state_lock = threading.Lock()  # Lock für Thread-sichere Zugriffe
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "smart_doorbell.db"
@@ -118,12 +120,12 @@ def get_distance():
 def record_video(event_type, duration):
     """Nimmt ein Video mit der USB-Webcam auf"""
     global recording_active
-    
-    if recording_active:
-        print(f"[VIDEO] Bereits eine Aufnahme aktiv, überspringe...")
-        return None
-    
-    recording_active = True
+
+    with state_lock:
+        if recording_active:
+            print(f"[VIDEO] Bereits eine Aufnahme aktiv, überspringe...")
+            return None
+        recording_active = True
     
     try:
         timestamp = datetime.now()
@@ -137,7 +139,7 @@ def record_video(event_type, duration):
         cmd = [
             'ffmpeg',
             '-f', 'v4l2',
-            '-framerate', '15',
+            '-framerate', str(VIDEO_FPS),
             '-video_size', VIDEO_RESOLUTION,
             '-i', '/dev/video0',
             '-t', str(duration),
@@ -186,8 +188,10 @@ def button_pressed():
 
 def motion_thread():
     """Thread für PIR-Bewegungssensor - NUR bei Zustandsänderung"""
+    global motion_times
+
     print("Motion-Thread gestartet - Überwache Bewegungen")
-    
+
     # WICHTIG: PIR Sensor braucht Zeit zum Kalibrieren!
     print("PIR Sensor kalibriert sich... 20 Sekunden warten")
     for i in range(20, 0, -1):
@@ -195,59 +199,62 @@ def motion_thread():
         time.sleep(1)
     print("  Kalibrierung: Fertig!            ")
     print("PIR Sensor bereit - Reagiere NUR auf Zustandsänderungen")
-    
+
     # Variablen für Zustandsänderung und Cooldown
     last_state = False
     cooldown_until = 0
     motion_count_total = 0
-    
+
     while sensor_active:
         try:
             now = time.time()
             current_state = GPIO.input(PIR_PIN)
-            
-            # Cooldown: Nach erkannter Bewegung 3 Sekunden Pause
+
+            # Cooldown: Nach erkannter Bewegung 2 Sekunden Pause
             if now < cooldown_until:
                 time.sleep(0.05)
                 continue
-            
+
             # NUR bei WECHSEL von LOW zu HIGH (steigende Flanke)
             if current_state == True and last_state == False:
                 motion_count_total += 1
-                motion_times.append(now)
-                
+
+                with state_lock:
+                    motion_times.append(now)
+                    # Alte Bewegungen entfernen (> MOTION_TIMEFRAME Sekunden)
+                    motion_times = [t for t in motion_times if now - t <= MOTION_TIMEFRAME]
+                    current_count = len(motion_times)
+
                 print(f"\n[🏃 MOTION] Bewegung #{motion_count_total} um {now:.0f}")
-                
-                # Cooldown für 3 Sekunden setzen - verhindert Dauerfeuer
-                cooldown_until = now + 3
-                
-                # Alte Bewegungen entfernen (> MOTION_TIMEFRAME Sekunden)
-                motion_times = [t for t in motion_times if now - t <= MOTION_TIMEFRAME]
-                
-                print(f"  Bewegungen in letzten {MOTION_TIMEFRAME}s: {len(motion_times)}/{MOTION_THRESHOLD}")
-                
+
+                # Cooldown für 2 Sekunden setzen - verhindert Dauerfeuer
+                cooldown_until = now + 2
+
+                print(f"  Bewegungen in letzten {MOTION_TIMEFRAME}s: {current_count}/{MOTION_THRESHOLD}")
+
                 # Prüfen ob Schwellwert erreicht
-                if len(motion_times) >= MOTION_THRESHOLD:
+                if current_count >= MOTION_THRESHOLD:
                     print(f"  ⚠️  SCHWELLE ERREICHT! Starte {VIDEO_DURATION_MOTION}s Videoaufnahme")
-                    
+
                     video_thread = threading.Thread(
                         target=record_video,
                         args=("motion", VIDEO_DURATION_MOTION),
                         daemon=True
                     )
                     video_thread.start()
-                    
+
                     # Reset nach erfolgreicher Auslösung
-                    motion_times = []
+                    with state_lock:
+                        motion_times = []
                     motion_count_total = 0
-                    
+
                     # Extra langer Cooldown nach Video (8 Sekunden)
                     cooldown_until = now + 8
-            
+
             # Aktuellen Zustand für nächsten Durchlauf speichern
             last_state = current_state
             time.sleep(0.05)  # 50ms Abtastrate
-            
+
         except Exception as e:
             print(f"Fehler im Motion-Thread: {e}")
             time.sleep(0.5)
@@ -255,22 +262,20 @@ def motion_thread():
 def check_light():
     """Prüft Lichtsensor und steuert LED bei Dunkelheit"""
     global led_on_dark
-    
+
     try:
         light_value = light_sensor.reading
-        
-        if light_value < DARKNESS_THRESHOLD and not led_on_dark:
-            # Es ist dunkel - LED einschalten
-            led.on()
-            led_on_dark = True
-            print(f"[💡 LICHT] Dunkel erkannt ({light_value:.0f}%) - LED EIN")
-            
-        elif light_value >= DARKNESS_THRESHOLD and led_on_dark:
-            # Es ist hell - LED ausschalten
-            led.off()
-            led_on_dark = False
-            print(f"[💡 LICHT] Hell erkannt ({light_value:.0f}%) - LED AUS")
-            
+
+        with state_lock:
+            if light_value < DARKNESS_THRESHOLD and not led_on_dark:
+                led.on()
+                led_on_dark = True
+                print(f"[💡 LICHT] Dunkel erkannt ({light_value:.0f}%) - LED EIN")
+            elif light_value >= DARKNESS_THRESHOLD and led_on_dark:
+                led.off()
+                led_on_dark = False
+                print(f"[💡 LICHT] Hell erkannt ({light_value:.0f}%) - LED AUS")
+
     except Exception as e:
         print(f"Fehler bei Lichtsensor: {e}")
 
@@ -309,24 +314,6 @@ def ultrasonic_thread():
             print(f"Fehler im Ultraschall-Thread: {e}")
             time.sleep(1)
 
-def motion_thread():
-    """Thread für PIR-Bewegungssensor"""
-    print("Motion-Thread gestartet - Überwache Bewegungen")
-    
-    # PIR Sensor kalibrieren
-    print("PIR Sensor kalibriert sich... 10 Sekunden")
-    time.sleep(10)
-    print("PIR Sensor bereit!")
-    
-    while sensor_active:
-        try:
-            check_motion()
-            time.sleep(0.05)  # 50ms Abtastrate
-            
-        except Exception as e:
-            print(f"Fehler im Motion-Thread: {e}")
-            time.sleep(0.1)
-
 def light_thread():
     """Thread für Lichtsensor und LED-Steuerung"""
     print("Light-Thread gestartet - Überwache Helligkeit")
@@ -343,109 +330,108 @@ def light_thread():
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
-            event_type TEXT NOT NULL,
-            video_file TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+    try:
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                video_file TEXT
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
 
 def add_event(event_type, video_filename=None):
     """Fügt einen neuen Event-Eintrag in die Datenbank hinzu"""
     conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    if video_filename and not video_filename.endswith('.mp4'):
-        video_filename = video_filename + '.mp4'
-    
-    c.execute("""
-        INSERT INTO events (timestamp, event_type, video_file)
-        VALUES (?, ?, ?)
-    """, (timestamp, event_type, video_filename))
-    conn.commit()
-    conn.close()
-    print(f"[📀 DATENBANK] Event hinzugefügt: {event_type} um {timestamp}")
+    try:
+        c = conn.cursor()
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if video_filename and not video_filename.endswith('.mp4'):
+            video_filename = video_filename + '.mp4'
+
+        c.execute("""
+            INSERT INTO events (timestamp, event_type, video_file)
+            VALUES (?, ?, ?)
+        """, (timestamp, event_type, video_filename))
+        conn.commit()
+        print(f"[📀 DATENBANK] Event hinzugefügt: {event_type} um {timestamp}")
+    finally:
+        conn.close()
 
 def get_events(limit=None):
     """Holt Events aus der Datenbank"""
     conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    
-    if limit:
-        c.execute("""
-            SELECT id, timestamp, event_type, video_file
-            FROM events
-            ORDER BY timestamp DESC
-            LIMIT ?
-        """, (limit,))
-    else:
-        c.execute("""
-            SELECT id, timestamp, event_type, video_file
-            FROM events
-            ORDER BY timestamp DESC
-        """)
-    
-    rows = c.fetchall()
-    conn.close()
-    
-    events_list = []
-    for row in rows:
-        event = dict(row)
-        events_list.append(event)
-    
-    return events_list
+    try:
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        if limit:
+            c.execute("""
+                SELECT id, timestamp, event_type, video_file
+                FROM events
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, (limit,))
+        else:
+            c.execute("""
+                SELECT id, timestamp, event_type, video_file
+                FROM events
+                ORDER BY timestamp DESC
+            """)
+
+        return [dict(row) for row in c.fetchall()]
+    finally:
+        conn.close()
 
 def get_event_by_id(event_id):
     """Holt ein spezifisches Event anhand der ID"""
     conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute("""
-        SELECT id, timestamp, event_type, video_file
-        FROM events
-        WHERE id = ?
-    """, (event_id,))
-    
-    row = c.fetchone()
-    conn.close()
-    
-    if row:
-        return dict(row)
-    return None
+    try:
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("""
+            SELECT id, timestamp, event_type, video_file
+            FROM events
+            WHERE id = ?
+        """, (event_id,))
+
+        row = c.fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
 
 def get_event_stats():
     """Gibt Statistiken über die Events zurück"""
     conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    c.execute("SELECT COUNT(*) FROM events")
-    total = c.fetchone()[0]
-    
-    c.execute("SELECT COUNT(*) FROM events WHERE event_type = 'ring'")
-    rings = c.fetchone()[0]
-    
-    c.execute("SELECT COUNT(*) FROM events WHERE event_type = 'motion'")
-    motions = c.fetchone()[0]
-    
-    c.execute("SELECT timestamp FROM events ORDER BY timestamp DESC LIMIT 1")
-    last_event = c.fetchone()
-    last_timestamp = last_event[0] if last_event else "Keine Events"
-    
-    conn.close()
-    
-    return {
-        'total': total,
-        'rings': rings,
-        'motions': motions,
-        'last_event': last_timestamp
-    }
+    try:
+        c = conn.cursor()
+
+        c.execute("SELECT COUNT(*) FROM events")
+        total = c.fetchone()[0]
+
+        c.execute("SELECT COUNT(*) FROM events WHERE event_type = 'ring'")
+        rings = c.fetchone()[0]
+
+        c.execute("SELECT COUNT(*) FROM events WHERE event_type = 'motion'")
+        motions = c.fetchone()[0]
+
+        c.execute("SELECT timestamp FROM events ORDER BY timestamp DESC LIMIT 1")
+        last_event = c.fetchone()
+        last_timestamp = last_event[0] if last_event else "Keine Events"
+
+        return {
+            'total': total,
+            'rings': rings,
+            'motions': motions,
+            'last_event': last_timestamp
+        }
+    finally:
+        conn.close()
 
 @app.route("/")
 def dashboard():
@@ -478,19 +464,13 @@ def api_add_event():
         video_file = request.files['video']
         if video_file.filename != '':
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            video_filename = f"{event_type}_{timestamp}.mp4"
+            safe_type = secure_filename(event_type) or "unknown"
+            video_filename = f"{safe_type}_{timestamp}.mp4"
             video_path = VIDEO_DIR / video_filename
             video_file.save(video_path)
     
     add_event(event_type, video_filename)
     return jsonify({"status": "success", "video_filename": video_filename})
-
-@app.route("/static/videos/<filename>")
-def serve_video(filename):
-    """Dient Videos aus dem Videos-Ordner"""
-    if not filename.endswith('.mp4'):
-        filename = filename + '.mp4'
-    return send_from_directory(VIDEO_DIR, filename)
 
 @app.route("/test_sensors")
 def test_sensors():
@@ -499,7 +479,11 @@ def test_sensors():
     button_state = GPIO.input(BUTTON_PIN)
     motion_state = GPIO.input(PIR_PIN)
     light_value = light_sensor.reading
-    
+
+    with state_lock:
+        motion_count = len(motion_times)
+        led_status = led_on_dark
+
     html = f"""
     <html>
     <head>
@@ -527,12 +511,12 @@ def test_sensors():
             <h3>🏃 PIR Motion</h3>
             <p>Status: <strong class="{'red' if motion_state else 'green'}">
                 {'BEWEGUNG' if motion_state else 'KEINE'}</strong></p>
-            <p>Bewegungen (letzte {MOTION_TIMEFRAME}s): <strong>{len(motion_times)}/{MOTION_THRESHOLD}</strong></p>
+            <p>Bewegungen (letzte {MOTION_TIMEFRAME}s): <strong>{motion_count}/{MOTION_THRESHOLD}</strong></p>
         </div>
         <div class="sensor">
             <h3>💡 Lichtsensor</h3>
             <p>Helligkeit: <strong>{light_value:.1f}%</strong></p>
-            <p>LED (Auto): <strong>{'EIN' if led_on_dark else 'AUS'}</strong></p>
+            <p>LED (Auto): <strong>{'EIN' if led_status else 'AUS'}</strong></p>
             <p>Schwelle: {DARKNESS_THRESHOLD}%</p>
         </div>
         <p><a href="/">⬅ Zurück zum Dashboard</a></p>
@@ -551,7 +535,7 @@ def cleanup():
         led.off()
         GPIO.cleanup()
         print("GPIO aufgeräumt")
-    except:
+    except Exception:
         pass
 
 if __name__ == "__main__":
