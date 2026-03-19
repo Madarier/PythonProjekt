@@ -483,6 +483,60 @@ def api_add_event():
     add_event(event_type, video_filename, temperature)
     return jsonify({"status": "success", "video_filename": video_filename, "temperature": temperature})
 
+@app.route("/backup", methods=["POST"])
+def backup():
+    """Erstellt ein Backup auf dem zweiten Pi-Top (192.168.0.236)"""
+    BACKUP_HOST = "192.168.0.236"
+    BACKUP_USER = "pi"
+    BACKUP_PASS = "pi-top"
+    BACKUP_DIR = "/home/pi/nexus_backup"
+
+    errors = []
+
+    try:
+        # Zielverzeichnis auf Remote erstellen
+        subprocess.run(
+            ["sshpass", "-p", BACKUP_PASS, "ssh",
+             "-o", "StrictHostKeyChecking=no",
+             f"{BACKUP_USER}@{BACKUP_HOST}",
+             f"mkdir -p {BACKUP_DIR}/videos"],
+            capture_output=True, text=True, timeout=10
+        )
+
+        # Datenbank kopieren
+        result_db = subprocess.run(
+            ["sshpass", "-p", BACKUP_PASS, "scp",
+             "-o", "StrictHostKeyChecking=no",
+             str(DB_PATH),
+             f"{BACKUP_USER}@{BACKUP_HOST}:{BACKUP_DIR}/smart_doorbell.db"],
+            capture_output=True, text=True, timeout=30
+        )
+        if result_db.returncode != 0:
+            errors.append(f"DB: {result_db.stderr.strip()}")
+
+        # Videos synchronisieren mit rsync
+        result_vid = subprocess.run(
+            ["sshpass", "-p", BACKUP_PASS, "rsync", "-avz", "--progress",
+             "-e", "ssh -o StrictHostKeyChecking=no",
+             str(VIDEO_DIR) + "/",
+             f"{BACKUP_USER}@{BACKUP_HOST}:{BACKUP_DIR}/videos/"],
+            capture_output=True, text=True, timeout=300
+        )
+        if result_vid.returncode != 0:
+            errors.append(f"Videos: {result_vid.stderr.strip()}")
+
+    except subprocess.TimeoutExpired:
+        return jsonify({"status": "error", "message": "Backup-Timeout: Verbindung zu langsam oder nicht erreichbar"}), 500
+    except FileNotFoundError:
+        return jsonify({"status": "error", "message": "sshpass nicht installiert. Installiere: sudo apt install sshpass"}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+    if errors:
+        return jsonify({"status": "partial", "message": "Backup teilweise fehlgeschlagen: " + "; ".join(errors)}), 207
+
+    return jsonify({"status": "success", "message": f"Backup erfolgreich auf {BACKUP_HOST} gespeichert"})
+
 @app.route("/test_sensors")
 def test_sensors():
     """Test-Seite für Sensoren"""

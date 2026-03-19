@@ -241,6 +241,49 @@ body::after {
     animation: dotPulse 2s ease-in-out infinite;
 }
 
+/* ===== Backup Button ===== */
+.backup-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: var(--purple-dim);
+    border: 1px solid rgba(167, 139, 250, 0.25);
+    border-radius: 50px;
+    color: var(--purple);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.backup-button:hover {
+    border-color: var(--purple);
+    background: rgba(167, 139, 250, 0.2);
+    box-shadow: 0 0 20px rgba(167, 139, 250, 0.15);
+    transform: translateY(-1px);
+}
+
+.backup-button.loading {
+    border-color: var(--cyan);
+    color: var(--cyan);
+    background: var(--cyan-dim);
+    pointer-events: none;
+}
+
+.backup-button.success {
+    border-color: var(--green);
+    color: var(--green);
+    background: var(--green-dim);
+}
+
+.backup-button.error {
+    border-color: var(--red);
+    color: var(--red);
+    background: var(--red-dim);
+}
+
 /* ===== Detail Header ===== */
 .detail-header {
     background: var(--bg-card);

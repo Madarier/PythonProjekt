@@ -21,6 +21,10 @@
                 </div>
             </div>
             <div class="header-right">
+                <button id="backup-btn" class="backup-button" onclick="startBackup()">
+                    <i class="fas fa-cloud-arrow-up"></i>
+                    <span>BACKUP</span>
+                </button>
                 <div class="system-status">
                     <span class="status-dot"></span>
                     ONLINE
@@ -119,5 +123,50 @@
             NEXUS SMART DOORBELL &middot; LAST SYNC: {{ stats.last_event if stats.last_event != 'Keine Events' else 'AWAITING DATA' }}
         </div>
     </div>
+
+    <script>
+    function startBackup() {
+        const btn = document.getElementById('backup-btn');
+        if (btn.classList.contains('loading')) return;
+
+        btn.classList.add('loading');
+        btn.querySelector('span').textContent = 'SYNCING...';
+        btn.querySelector('i').className = 'fas fa-spinner fa-spin';
+
+        fetch('/backup', { method: 'POST' })
+            .then(r => r.json().then(data => ({ status: r.status, data })))
+            .then(({ status, data }) => {
+                if (data.status === 'success') {
+                    btn.classList.remove('loading');
+                    btn.classList.add('success');
+                    btn.querySelector('i').className = 'fas fa-check';
+                    btn.querySelector('span').textContent = 'DONE';
+                } else {
+                    btn.classList.remove('loading');
+                    btn.classList.add('error');
+                    btn.querySelector('i').className = 'fas fa-xmark';
+                    btn.querySelector('span').textContent = 'FAILED';
+                    console.error('Backup error:', data.message);
+                }
+                setTimeout(() => {
+                    btn.classList.remove('success', 'error');
+                    btn.querySelector('i').className = 'fas fa-cloud-arrow-up';
+                    btn.querySelector('span').textContent = 'BACKUP';
+                }, 3000);
+            })
+            .catch(err => {
+                btn.classList.remove('loading');
+                btn.classList.add('error');
+                btn.querySelector('i').className = 'fas fa-xmark';
+                btn.querySelector('span').textContent = 'ERROR';
+                console.error('Backup fetch error:', err);
+                setTimeout(() => {
+                    btn.classList.remove('error');
+                    btn.querySelector('i').className = 'fas fa-cloud-arrow-up';
+                    btn.querySelector('span').textContent = 'BACKUP';
+                }, 3000);
+            });
+    }
+    </script>
 </body>
 </html>
